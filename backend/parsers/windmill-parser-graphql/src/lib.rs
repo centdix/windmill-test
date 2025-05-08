@@ -48,12 +48,16 @@ fn parse_graphql_file(code: &str) -> anyhow::Result<Option<Vec<Arg>>> {
 
         let (has_default, default) = match cap.get(6).map(|x| x.as_str().to_string()) {
             Some(x) => (true, Some(x)), // default value => optional
-            None => (cap.get(3).is_none() && cap.get(5).is_none(), None), // optional if no !
+            None => {
+                let is_nullable = cap.get(3).is_none() && cap.get(5).is_none();
+                (is_nullable, if is_nullable { Some("null".to_string()) } else { None })
+            },
         };
 
         let parsed_default = default.and_then(|x| match parsed_typ {
             Typ::Int => x.parse::<i64>().ok().map(|x| json!(x)),
             Typ::Float => x.parse::<f64>().ok().map(|x| json!(x)),
+            _ if x == "null" => Some(json!(null)),
             _ => Some(json!(x)),
         });
         args.push(Arg {
