@@ -73,7 +73,7 @@
 		Object.keys(schema?.properties ?? {}).forEach((key) => {
 			if (schema?.properties[key].default != undefined && args[key] == undefined) {
 				let value = schema?.properties[key].default
-				nargs[key] = value === 'object' ? structuredClone(value) : value
+				nargs[key] = value === 'object' || (schema?.properties[key].type === 'array' && schema?.properties[key].nullable) ? null : structuredClone(value)
 			}
 		})
 		args = nargs
