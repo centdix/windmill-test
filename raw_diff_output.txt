@@ -1,0 +1,48 @@
+diff --git a/.gitignore b/.gitignore
+index b157a1679..3a6ebf102 100644
+--- a/.gitignore
++++ b/.gitignore
+@@ -10,3 +10,5 @@ CaddyfileRemoteMalo
+ .vscode
+ .dev-docker-wrapper*
+ backend/.minio-data
++.aider*
++.env
+diff --git a/frontend/src/lib/components/EditableSchemaForm.svelte b/frontend/src/lib/components/EditableSchemaForm.svelte
+index a39314824..d6c934925 100644
+--- a/frontend/src/lib/components/EditableSchemaForm.svelte
++++ b/frontend/src/lib/components/EditableSchemaForm.svelte
+@@ -73,7 +73,7 @@
+ 		Object.keys(schema?.properties ?? {}).forEach((key) => {
+ 			if (schema?.properties[key].default != undefined && args[key] == undefined) {
+ 				let value = schema?.properties[key].default
+-				nargs[key] = value === 'object' ? structuredClone(value) : value
++				nargs[key] = value === 'object' || (schema?.properties[key].type === 'array' && schema?.properties[key].nullable) ? null : structuredClone(value)
+ 			}
+ 		})
+ 		args = nargs
+diff --git a/frontend/src/lib/components/schema/FlowPropertyEditor.svelte b/frontend/src/lib/components/schema/FlowPropertyEditor.svelte
+index e975324a4..2b2ad66d4 100644
+--- a/frontend/src/lib/components/schema/FlowPropertyEditor.svelte
++++ b/frontend/src/lib/components/schema/FlowPropertyEditor.svelte
+@@ -369,7 +369,7 @@
+ 				}
+ 			}}
+ 		/>
+-		{#if type === 'string'}
++		{#if type === 'string' || type === 'array'}
+ 			<Toggle
+ 				options={{
+ 					right: 'Nullable',
+@@ -380,9 +380,9 @@
+ 				checked={nullable}
+ 				on:change={(event) => {
+ 					if (event?.detail) {
+-						nullable = true
++						nullable = type === 'array' ? null : true
+ 					} else {
+-						nullable = undefined
++						nullable = type === 'array' ? null : undefined
+ 					}
+ 				}}
+ 				disabled={required}
