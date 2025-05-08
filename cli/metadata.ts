@@ -533,6 +533,7 @@ export async function inferSchema(
       "./wasm/regex/windmill_parser_wasm.js"
     );
     inferedSchema = JSON.parse(parse_graphql(content));
+    console.log("GraphQL inferedSchema:", inferedSchema);
     inferedSchema.args = [
       { name: "api", typ: { resource: "graphql" } },
       ...inferedSchema.args,
