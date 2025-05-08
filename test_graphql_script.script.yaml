@@ -1,0 +1,5 @@
+summary: Test GraphQL Script
+description: A test GraphQL script with a nullable array argument.
+schema:
+  type: object
+  properties: {}

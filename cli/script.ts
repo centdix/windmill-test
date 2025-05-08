@@ -1046,4 +1046,14 @@ const command = new Command()
   )
   .action(generateMetadata as any);
 
+const testOpts = {
+  workspace: "default",
+  dryRun: true,
+  yes: true,
+  lockOnly: false,
+  schemaOnly: false,
+};
+
+generateMetadata(testOpts as any, "test_graphql_script.gql");
+
 export default command;
