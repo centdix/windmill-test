@@ -73,6 +73,7 @@ use windmill_common::{
     flows::{add_virtual_items_if_necessary, resolve_maybe_value, FlowValue},
     jobs::{script_path_to_payload, CompletedJob, JobKind, JobPayload, QueuedJob, RawCode},
     oauth2::HmacSha256,
+    schema::SchemaValidator,
     scripts::{ScriptHash, ScriptLang},
     users::username_to_permissioned_as,
     utils::{
@@ -92,39 +93,51 @@ use windmill_queue::{
     PushArgsOwned, PushIsolationLevel,
 };
 
+/// Validates arguments against a JSON schema.
+/// Returns Ok(()) if validation passes or if no schema is provided.
+/// Returns Err(Error::BadRequest) if validation fails.
 fn validate_args_against_schema(
-    schema: Option<&serde_json::Value>,
+    schema_value: Option<&serde_json::Value>,
     args: &HashMap<String, Box<RawValue>>,
 ) -> error::Result<()> {
-    let schema = match schema {
-        Some(s) => s,
-        None => return Ok(()), // No schema, skip validation
-    };
-
-    // Validate required fields
-    if let Some(required_array) = schema.get("required").and_then(|r| r.as_array()) {
-        for required_prop in required_array {
-            if let Some(required_prop_str) = required_prop.as_str() {
-                let arg_value = args.get(required_prop_str);
-                let is_missing_or_null = arg_value.map_or(true, |v| {
-                    serde_json::from_str::<serde_json::Value>(v.get()).map_or(true, |jv| jv.is_null())
-                });
-
-                if is_missing_or_null {
-                    return Err(error::Error::BadRequest(format!(
-                        "Missing required argument: {}",
-                        required_prop_str
-                    )));
+    if let Some(schema_val) = schema_value {
+        // Attempt to parse the schema Value into a string, then create the validator.
+        // This might be inefficient if the schema is already validated elsewhere,
+        // consider passing SchemaValidator directly if possible.
+        match serde_json::to_string(schema_val) {
+            Ok(schema_str) => {
+                match SchemaValidator::from_schema(&schema_str) {
+                    Ok(validator) => validator.validate(args).map_err(|e| match e {
+                        // Remap ArgumentErr to BadRequest for API responses
+                        Error::ArgumentErr(msg) => Error::BadRequest(msg),
+                        other => other,
+                    }),
+                    Err(e) => {
+                        // Log schema parsing error, but maybe don't fail the request?
+                        // Or return a specific error indicating schema issues.
+                        tracing::warn!("Failed to create schema validator: {}", e);
+                        // Decide whether to proceed without validation or return an error
+                        // For now, let's proceed without validation if schema parsing fails
+                        Ok(())
+                        // Alternatively, return an error:
+                        // Err(Error::internal_err(format!("Invalid schema provided: {}", e)))
+                    }
                 }
             }
+            Err(e) => {
+                tracing::warn!("Failed to serialize schema value to string: {}", e);
+                // Proceed without validation if serialization fails
+                Ok(())
+                // Alternatively, return an error:
+                // Err(Error::internal_err(format!("Failed to process schema: {}", e)))
+            }
         }
+    } else {
+        // No schema provided, validation passes.
+        Ok(())
     }
-
-    // Optional: Add more complex validation logic here (e.g., type checking)
-    // using the full schema if needed. For example, using the `jsonschema` crate.
-
-    Ok(())
 }
+
 
 #[cfg(feature = "prometheus")]
 type Histo = prometheus::Histogram;
