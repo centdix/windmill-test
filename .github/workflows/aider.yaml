@@ -321,7 +321,7 @@ jobs:
             fi
 
             # Escape user request for CDATA
-            USER_COMMENT_REQUEST_ESCAPED=$(echo "$USER_COMMENT_REQUEST" | sed 's/]]>/]]\\&gt;/g')
+            USER_COMMENT_REQUEST_ESCAPED=$(printf "%s" "$USER_COMMENT_REQUEST" | sed 's/]]>/]]\\&gt;/g') # Use printf for safe input to sed
 
             # Assemble the final prompt string
             FORMATTED_PROMPT="<github_context type=\"pr\" number=\"$PR_NUMBER\">"
@@ -340,7 +340,8 @@ jobs:
             FORMATTED_PROMPT="${FORMATTED_PROMPT}</github_context>"
             FORMATTED_PROMPT="${FORMATTED_PROMPT}<instructions><![CDATA[You are Aider, an AI Pair Programmer. You are reviewing a Pull Request. The user has provided a request in the <user_request> tag. Use the full context provided (PR details, diff, comments, linked issue) to understand the PR and the request. Apply the requested changes to the specified files.]]></instructions>"
 
-            echo "$FORMATTED_PROMPT" > "$PROMPT_FILE_PATH"
+            # echo "$FORMATTED_PROMPT" > "$PROMPT_FILE_PATH" # Unsafe expansion
+            printf "%s" "$FORMATTED_PROMPT" > "$PROMPT_FILE_PATH" # Use printf for safe writing
             echo "Detailed prompt assembled and written to $PROMPT_FILE_PATH (Size: ${#FORMATTED_PROMPT} bytes)"
 
           else
@@ -464,9 +465,9 @@ jobs:
             --no-analytics \
             --no-stream | tee /tmp/aider_output.txt
 
-          AIDER_OUTPUT=$(cat /tmp/aider_output.txt)
+          # AIDER_OUTPUT=$(cat /tmp/aider_output.txt) # Avoid intermediate variable
           echo "aider_output<<EOF" >> $GITHUB_OUTPUT
-          echo "$AIDER_OUTPUT" >> $GITHUB_OUTPUT
+          cat /tmp/aider_output.txt >> $GITHUB_OUTPUT # Pipe directly
           echo "EOF" >> $GITHUB_OUTPUT
 
       - name: Clean up prompt file
