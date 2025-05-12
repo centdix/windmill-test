@@ -92,6 +92,40 @@ use windmill_queue::{
     PushArgsOwned, PushIsolationLevel,
 };
 
+fn validate_args_against_schema(
+    schema: Option<&serde_json::Value>,
+    args: &HashMap<String, Box<RawValue>>,
+) -> error::Result<()> {
+    let schema = match schema {
+        Some(s) => s,
+        None => return Ok(()), // No schema, skip validation
+    };
+
+    // Validate required fields
+    if let Some(required_array) = schema.get("required").and_then(|r| r.as_array()) {
+        for required_prop in required_array {
+            if let Some(required_prop_str) = required_prop.as_str() {
+                let arg_value = args.get(required_prop_str);
+                let is_missing_or_null = arg_value.map_or(true, |v| {
+                    serde_json::from_str::<serde_json::Value>(v.get()).map_or(true, |jv| jv.is_null())
+                });
+
+                if is_missing_or_null {
+                    return Err(error::Error::BadRequest(format!(
+                        "Missing required argument: {}",
+                        required_prop_str
+                    )));
+                }
+            }
+        }
+    }
+
+    // Optional: Add more complex validation logic here (e.g., type checking)
+    // using the full schema if needed. For example, using the `jsonschema` crate.
+
+    Ok(())
+}
+
 #[cfg(feature = "prometheus")]
 type Histo = prometheus::Histogram;
 
@@ -3750,12 +3784,23 @@ pub async fn run_script_by_path_inner(
 
     let mut tx = user_db.clone().begin(&authed).await?;
     let (job_payload, tag, _delete_after_use, timeout, on_behalf_of) =
-        script_path_to_payload(script_path, &mut *tx, &w_id, run_query.skip_preprocessor).await?;
+        script_path_to_payload(script_path.clone(), &mut *tx, &w_id, run_query.skip_preprocessor).await?;
+    let schema: Option<serde_json::Value> = sqlx::query_scalar!(
+        r#"SELECT schema as "schema: _" FROM script WHERE workspace_id = $1 AND path = $2 ORDER BY created_at DESC LIMIT 1"#,
+        &w_id, script_path
+    )
+    .fetch_optional(&mut *tx)
+    .await?
+    .flatten();
+
     drop(tx);
     let scheduled_for = run_query.get_scheduled_for(&db).await?;
 
     let tag = run_query.tag.clone().or(tag);
     check_tag_available_for_workspace(&w_id, &tag, &authed).await?;
+
+    // Validate arguments against the schema
+    validate_args_against_schema(schema.as_ref(), &args.args)?;
 
     let (email, permissioned_as, push_authed, tx) =
         if let Some(on_behalf_of) = on_behalf_of.as_ref() {
@@ -4552,10 +4597,21 @@ pub async fn run_wait_result_script_by_path_internal(
 
     let mut tx = user_db.clone().begin(&authed).await?;
     let (job_payload, tag, delete_after_use, timeout, on_behalf_of) =
-        script_path_to_payload(script_path, &mut *tx, &w_id, run_query.skip_preprocessor).await?;
+        script_path_to_payload(script_path.clone(), &mut *tx, &w_id, run_query.skip_preprocessor).await?;
+    let schema: Option<serde_json::Value> = sqlx::query_scalar!(
+        r#"SELECT schema as "schema: _" FROM script WHERE workspace_id = $1 AND path = $2 ORDER BY created_at DESC LIMIT 1"#,
+        &w_id, script_path
+    )
+    .fetch_optional(&mut *tx)
+    .await?
+    .flatten();
+
 
     let tag = run_query.tag.clone().or(tag);
     check_tag_available_for_workspace(&w_id, &tag, &authed).await?;
+
+    // Validate arguments against the schema
+    validate_args_against_schema(schema.as_ref(), &args.args)?;
 
     let (email, permissioned_as, push_authed, tx) =
         if let Some(on_behalf_of) = on_behalf_of.as_ref() {
@@ -4647,8 +4703,20 @@ pub async fn run_wait_result_script_by_hash(
     }
     check_scopes(&authed, || format!("run:script/{path}"))?;
 
+    // Fetch schema separately
+    let schema: Option<serde_json::Value> = sqlx::query_scalar!(
+        r#"SELECT schema as "schema: _" FROM script WHERE workspace_id = $1 AND hash = $2"#,
+        &w_id, hash
+    )
+    .fetch_optional(&db) // Use db directly
+    .await?
+    .flatten();
+
     let tag = run_query.tag.clone().or(tag);
     check_tag_available_for_workspace(&w_id, &tag, &authed).await?;
+
+    // Validate arguments against the schema
+    validate_args_against_schema(schema.as_ref(), &args.args)?;
 
     let (email, permissioned_as, push_authed, tx) = if let Some(email) = on_behalf_of_email.as_ref()
     {
@@ -4845,6 +4913,35 @@ async fn run_preview_script(
     let scheduled_for = run_query.get_scheduled_for(&db).await?;
     let tag = run_query.tag.clone().or(preview.tag.clone());
     check_tag_available_for_workspace(&w_id, &tag, &authed).await?;
+
+    // Fetch schema for preview if path or hash is available
+    let schema: Option<serde_json::Value> = if let Some(hash_str) = &preview.script_hash {
+         if let Ok(hash_val) = windmill_common::scripts::to_i64(hash_str) {
+             sqlx::query_scalar!(
+                 r#"SELECT schema as "schema: _" FROM script WHERE workspace_id = $1 AND hash = $2"#,
+                 &w_id, hash_val
+             )
+             .fetch_optional(&db)
+             .await?
+             .flatten()
+         } else { None }
+    } else if let Some(path_str) = &preview.path {
+        sqlx::query_scalar!(
+            r#"SELECT schema as "schema: _" FROM script WHERE workspace_id = $1 AND path = $2 ORDER BY created_at DESC LIMIT 1"#,
+            &w_id, path_str
+        )
+        .fetch_optional(&db)
+        .await?
+        .flatten()
+    } else {
+        None // No path or hash, cannot fetch schema for pure preview
+    };
+
+    let preview_args = preview.args.unwrap_or_default();
+    // Validate arguments if schema was found
+    validate_args_against_schema(schema.as_ref(), &preview_args)?;
+
+
     let tx = PushIsolationLevel::Isolated(user_db.clone(), authed.clone().into());
 
     let (uuid, tx) = push(
@@ -4870,7 +4967,7 @@ async fn run_preview_script(
                 dedicated_worker: preview.dedicated_worker,
             }),
         },
-        PushArgs::from(&preview.args.unwrap_or_default()),
+        PushArgs::from(&preview_args), // Use the validated args variable
         authed.display_username(),
         &authed.email,
         username_to_permissioned_as(&authed.username),
@@ -5610,6 +5707,17 @@ pub async fn run_job_by_hash_inner(
     ) = get_path_tag_limits_cache_for_hash(user_db.clone().begin(&authed).await?, &w_id, hash)
         .await?;
     check_scopes(&authed, || format!("run:script/{path}"))?;
+
+    // Fetch schema separately as it's not returned by get_path_tag_limits_cache_for_hash
+    let schema: Option<serde_json::Value> = sqlx::query_scalar!(
+        r#"SELECT schema as "schema: _" FROM script WHERE workspace_id = $1 AND hash = $2"#,
+        &w_id, hash
+    )
+    .fetch_optional(&db) // Use db directly, no need for tx here
+    .await?
+    .flatten();
+
+
     if let Some(run_query_cache_ttl) = run_query.cache_ttl {
         cache_ttl = Some(run_query_cache_ttl);
     }
@@ -5617,6 +5725,9 @@ pub async fn run_job_by_hash_inner(
     let tag = run_query.tag.clone().or(tag);
 
     check_tag_available_for_workspace(&w_id, &tag, &authed).await?;
+
+    // Validate arguments against the schema
+    validate_args_against_schema(schema.as_ref(), &args.args)?;
 
     let (email, permissioned_as, push_authed, tx) = if let Some(email) = on_behalf_of_email.as_ref()
     {
