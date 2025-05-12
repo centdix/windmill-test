@@ -1,0 +1,82 @@
+## Debugging Information
+
+### AI Response Content:
+
+```
+The bug where starting an AI chat conversation with a Rust script and Deepseek fails with an error popup is likely due to a `TypeError` in the frontend code.
+
+Specifically, the function `getPrompts` in `frontend/src/lib/components/copilot/lib.ts` attempts to access `promptsConfig.prompts[scriptOptions.language].prompt`. For Rust (and Python, Deno, etc.), when the `scriptOptions.type` is 'gen', 'edit', or 'fix', the corresponding configuration objects (e.g., `GEN_PROMPT.prompts.rust`) are empty (`{}`) and do not have a `prompt` property. This leads to `undefined.replace(...)` calls, causing a runtime error.
+
+This error would occur if the "start a conversation" action for a new/empty Rust script internally triggers a "generate", "edit", or "fix" type of copilot operation that uses this `getPrompts` function. The main chat interface (`AIChat.svelte`) uses a different mechanism (`prepareUserMessage` with `getLangContext`) which correctly handles Rust context.
+
+The reason it might appear to work for Python could be that the specific user flow for Python did not trigger this problematic `getPrompts` codepath, or the error was handled differently/not noticed.
+
+To fix this, the prompt configurations for Rust in:
+- `frontend/src/lib/components/copilot/prompts/genPrompt.ts`
+- `frontend/src/lib/components/copilot/prompts/editPrompt.ts`
+- `frontend/src/lib/components/copilot/prompts/fixPrompt.ts`
+
+should be updated from an empty object `{}` to include a `prompt` string. For example, in `genPrompt.ts`:
+```javascript
+// ...
+    "rust": {
+      "prompt": "<contextual_information>
+My instructions: {description}"
+    },
+// ...
+```
+Similar minimal prompt strings should be added for Rust in `editPrompt.ts` and `fixPrompt.ts`. This will prevent the `TypeError`. The detailed language-specific context for Rust is already provided by `getLangContext`, which is used by `prepareUserMessage` and also seems to be implicitly part of `<contextual_information>` or the system prompt for the `copilot()` function.
+
+The Deepseek model being mentioned might be incidental if the root cause is this JavaScript error, as the error occurs before the AI model is robustly invoked through this specific codepath. However, ensuring all models handle the resulting prompts gracefully after the fix is also important.
+```
+
+### Error Log (first 2000 chars):
+
+```
+Generated session ID for search caching: 4a8e4e20-20df-4552-ab2a-8c3a3fc06499
+No folders configured via ALLOWED_FOLDERS. Tools might default to current directory or require explicit paths.
+Executing search for session aa63c467-41a4-4080-8d49-23f1bf5b1e6e
+
+Search: query=""AI chat"" path="." maxTokens=10000 timeout=30 session=19fa771a-83a5-4527-9fad-4860a91e1376
+
+Search results: 0 matches, 10000 tokens
+Executing search for session aa63c467-41a4-4080-8d49-23f1bf5b1e6e
+
+Search: query="Deepseek" path="." maxTokens=10000 timeout=30 session=19fa771a-83a5-4527-9fad-4860a91e1376
+
+Search results: 20 matches, 2614 tokens, 8016 bytes
+Executing search for session aa63c467-41a4-4080-8d49-23f1bf5b1e6e
+
+Search: query="copilot AND rust" path="." maxTokens=10000 timeout=30 session=19fa771a-83a5-4527-9fad-4860a91e1376
+
+Search results: 14 matches, 5567 tokens, 17859 bytes
+Executing search for session aa63c467-41a4-4080-8d49-23f1bf5b1e6e
+
+Search: query="getLangContext" path="./frontend/src/lib/components/copilot" maxTokens=10000 timeout=30 session=19fa771a-83a5-4527-9fad-4860a91e1376
+
+Search results: 34 matches, 5076 tokens, 15133 bytes
+Executing search for session aa63c467-41a4-4080-8d49-23f1bf5b1e6e
+
+Search: query="GEN_PROMPT" path="./frontend/src/lib/components/copilot" maxTokens=10000 timeout=30 session=19fa771a-83a5-4527-9fad-4860a91e1376
+
+Search results: 38 matches, 5424 tokens, 14630 bytes
+Executing search for session aa63c467-41a4-4080-8d49-23f1bf5b1e6e
+
+Search: query="AIChat" path="./frontend/src/lib/components/copilot/chat" maxTokens=10000 timeout=30 session=19fa771a-83a5-4527-9fad-4860a91e1376
+
+Search results: 34 matches, 4653 tokens, 11622 bytes
+Executing extract for session aa63c467-41a4-4080-8d49-23f1bf5b1e6e
+
+Extract: files="frontend/src/lib/components/copilot/lib.ts"
+```
+
+### Git Status Information:
+
+```
+?? error.log
+?? formatted_prompt.txt
+?? jq_std_error.log
+?? response.txt
+```
+
+_This is a debug comment to help diagnose workflow issues._
