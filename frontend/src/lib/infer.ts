@@ -217,7 +217,11 @@ export async function inferArgs(
 
 		argSigToJsonSchemaType(arg.typ, schema.properties[arg.name])
 
-		schema.properties[arg.name].default = arg.default
+		if (arg.has_default) {
+			schema.properties[arg.name].default = arg.default
+		} else {
+			delete schema.properties[arg.name].default
+		}
 
 		if (!arg.has_default && !schema.required.includes(arg.name)) {
 			schema.required.push(arg.name)

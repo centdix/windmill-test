@@ -91,6 +91,9 @@ use windmill_queue::{
     cancel_job, get_result_and_success_by_id_from_flow, job_is_complete, push, PushArgs,
     PushArgsOwned, PushIsolationLevel,
 };
+use windmill_common::schema::{schema_validator_from_main_arg_sig, SchemaValidator};
+use windmill_parser::MainArgSignature;
+
 
 #[cfg(feature = "prometheus")]
 type Histo = prometheus::Histogram;
@@ -3519,7 +3522,7 @@ pub async fn run_flow_by_path(
     args: WebhookArgs,
 ) -> error::Result<(StatusCode, String)> {
     let args = args.to_push_args_owned(&authed, &db, &w_id).await?;
-
+    // Flow arguments are validated by the flow engine itself based on its schema, not here.
     run_flow_by_path_inner(authed, db, user_db, w_id, flow_path, run_query, args, None).await
 }
 
@@ -3717,7 +3720,28 @@ pub async fn run_script_by_path(
     Query(run_query): Query<RunJobQuery>,
     args: WebhookArgs,
 ) -> error::Result<(StatusCode, String)> {
-    let args = args.to_push_args_owned(&authed, &db, &w_id).await?;
+    let args_map = args.to_push_args_owned(&authed, &db, &w_id).await?;
+
+    // Fetch script details for validation
+    let script_for_validation = sqlx::query!(
+        "SELECT content, language as \"language: ScriptLang\", schema as \"schema_json: _\" FROM script WHERE path = $1 AND workspace_id = $2 AND archived = false ORDER BY created_at DESC LIMIT 1",
+        script_path.path_str(), &w_id
+    )
+    .fetch_optional(&db)
+    .await?
+    .ok_or_else(|| Error::NotFound(format!("Script not found at path {} in workspace {}", script_path.path_str(), w_id)))?;
+
+    validate_script_args(
+        &db,
+        &w_id,
+        script_path.path_str(),
+        &script_for_validation.content,
+        &script_for_validation.language,
+        script_for_validation.schema_json.as_ref().map(|s| s.get()),
+        None, // TODO: Determine entrypoint override if necessary from script_path_to_payload logic
+        &args_map.args,
+    ).await?;
+
     run_script_by_path_inner(
         authed,
         db,
@@ -4521,7 +4545,27 @@ pub async fn run_wait_result_script_by_path(
     #[cfg(feature = "enterprise")]
     check_license_key_valid().await?;
 
-    let args = args.to_push_args_owned(&authed, &db, &w_id).await?;
+    let args_map = args.to_push_args_owned(&authed, &db, &w_id).await?;
+
+    // Fetch script details for validation
+    let script_for_validation = sqlx::query!(
+        "SELECT content, language as \"language: ScriptLang\", schema as \"schema_json: _\" FROM script WHERE path = $1 AND workspace_id = $2 AND archived = false ORDER BY created_at DESC LIMIT 1",
+        script_path.path_str(), &w_id
+    )
+    .fetch_optional(&db)
+    .await?
+    .ok_or_else(|| Error::NotFound(format!("Script not found at path {} in workspace {}", script_path.path_str(), w_id)))?;
+
+    validate_script_args(
+        &db,
+        &w_id,
+        script_path.path_str(),
+        &script_for_validation.content,
+        &script_for_validation.language,
+        script_for_validation.schema_json.as_ref().map(|s| s.get()),
+        None, // TODO: Determine entrypoint override
+        &args_map.args,
+    ).await?;
 
     run_wait_result_script_by_path_internal(
         db,
@@ -4621,10 +4665,30 @@ pub async fn run_wait_result_script_by_hash(
     #[cfg(feature = "enterprise")]
     check_license_key_valid().await?;
 
-    let args = args.to_push_args_owned(&authed, &db, &w_id).await?;
+    let args_map = args.to_push_args_owned(&authed, &db, &w_id).await?;
     check_queue_too_long(&db, run_query.queue_limit).await?;
 
     let hash = script_hash.0;
+
+    // Fetch script details for validation
+    let script_for_validation = sqlx::query!(
+        "SELECT content, language as \"language: ScriptLang\", schema as \"schema_json: _\" FROM script WHERE hash = $1 AND workspace_id = $2",
+        hash, &w_id
+    )
+    .fetch_optional(&db)
+    .await?
+    .ok_or_else(|| Error::NotFound(format!("Script not found with hash {} in workspace {}", hash, w_id)))?;
+
+    validate_script_args(
+        &db,
+        &w_id,
+        &format!("hash:{}", hash),
+        &script_for_validation.content,
+        &script_for_validation.language,
+        script_for_validation.schema_json.as_ref().map(|s| s.get()),
+        None, // TODO: Determine entrypoint override
+        &args_map.args,
+    ).await?;
     let (
         path,
         tag,
@@ -4684,7 +4748,7 @@ pub async fn run_wait_result_script_by_hash(
             apply_preprocessor: !run_query.skip_preprocessor.unwrap_or(false)
                 && has_preprocessor.unwrap_or(false),
         },
-        PushArgs { args: &args.args, extra: args.extra },
+        PushArgs { args: &args_map.args, extra: args_map.extra },
         authed.display_username(),
         email,
         permissioned_as,
@@ -4842,6 +4906,24 @@ async fn run_preview_script(
             "Operators cannot run preview jobs for security reasons".to_string(),
         ));
     }
+
+    let script_content = preview.content.as_deref().unwrap_or_default();
+    let script_lang = preview.language.as_ref().unwrap_or(&ScriptLang::Deno);
+    let script_args = preview.args.as_ref().cloned().unwrap_or_default();
+    
+    // Preview doesn't have an explicit schema string, so schema_json_str is None.
+    // Entrypoint override is also assumed None for previews.
+    validate_script_args(
+        &db,
+        &w_id,
+        preview.path.as_deref().unwrap_or("preview"),
+        script_content,
+        script_lang,
+        None, 
+        None, 
+        &script_args,
+    ).await?;
+
     let scheduled_for = run_query.get_scheduled_for(&db).await?;
     let tag = run_query.tag.clone().or(preview.tag.clone());
     check_tag_available_for_workspace(&w_id, &tag, &authed).await?;
@@ -5564,7 +5646,28 @@ pub async fn run_job_by_hash(
     Query(run_query): Query<RunJobQuery>,
     args: WebhookArgs,
 ) -> error::Result<(StatusCode, String)> {
-    let args = args.to_push_args_owned(&authed, &db, &w_id).await?;
+    let args_map = args.to_push_args_owned(&authed, &db, &w_id).await?;
+
+    // Fetch script details for validation
+    let script_for_validation = sqlx::query!(
+        "SELECT content, language as \"language: ScriptLang\", schema as \"schema_json: _\" FROM script WHERE hash = $1 AND workspace_id = $2",
+        script_hash.0, &w_id
+    )
+    .fetch_optional(&db)
+    .await?
+    .ok_or_else(|| Error::NotFound(format!("Script not found with hash {} in workspace {}", script_hash, w_id)))?;
+
+    validate_script_args(
+        &db,
+        &w_id,
+        &format!("hash:{}", script_hash),
+        &script_for_validation.content,
+        &script_for_validation.language,
+        script_for_validation.schema_json.as_ref().map(|s| s.get()),
+        None, // TODO: Determine entrypoint override if necessary
+        &args_map.args,
+    ).await?;
+
     run_job_by_hash_inner(
         authed,
         db,
