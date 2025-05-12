@@ -530,10 +530,8 @@ jobs:
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           issue-number: ${{ github.event.issue.number }}
-          env:
-            AIDER_MODEL: ${{ env.AIDER_MODEL || 'gemini/gemini-2.5-pro-preview-05-06' }}
           body: |
-            ✅ Aider (via Gemini using `${{ env.AIDER_MODEL }}`) has processed your request triggered by a `${{ github.event_name }}` event.
+            ✅ Aider (via Gemini) has processed your request triggered by a `${{ github.event_name }}` event.
 
             ${{ steps.commit_and_push.outputs.CHANGES_APPLIED_MESSAGE || 'Aider processing complete.' }}
 
