@@ -62,6 +62,200 @@ jobs:
           git checkout "$PR_HEAD_REF"
           echo "Successfully checked out branch $(git rev-parse --abbrev-ref HEAD)"
 
+      - name: Get Linked Issue Details (if issue_comment on PR)
+        id: get_linked_issue
+        if: github.event_name == 'issue_comment'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ github.event.issue.number }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+        run: |
+          echo "Checking for issues linked to PR #${PR_NUMBER}..."
+          LINKED_ISSUE_INFO_JSON=$(gh pr view $PR_NUMBER --json closingIssuesReferences --jq '.closingIssuesReferences.nodes[0] // empty' --repo $GITHUB_REPOSITORY)
+
+          if [[ -z "$LINKED_ISSUE_INFO_JSON" ]]; then
+            echo "No linked issue found for PR #${PR_NUMBER}."
+            echo "linked_issue_number=" >> $GITHUB_OUTPUT
+            echo "linked_issue_title=" >> $GITHUB_OUTPUT
+            echo "linked_issue_body=" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+
+          LINKED_ISSUE_NUMBER=$(echo "$LINKED_ISSUE_INFO_JSON" | jq -r '.number // empty')
+          if [[ -z "$LINKED_ISSUE_NUMBER" ]]; then
+             echo "::warning::Found linked issue reference but could not extract number from JSON: $LINKED_ISSUE_INFO_JSON"
+             echo "linked_issue_number=" >> $GITHUB_OUTPUT
+             echo "linked_issue_title=" >> $GITHUB_OUTPUT
+             echo "linked_issue_body=" >> $GITHUB_OUTPUT
+             exit 0
+          fi
+
+          echo "Found linked issue #${LINKED_ISSUE_NUMBER}. Fetching details..."
+          ISSUE_DETAILS_JSON=$(gh issue view $LINKED_ISSUE_NUMBER --json title,body --repo $GITHUB_REPOSITORY)
+
+          if [[ -z "$ISSUE_DETAILS_JSON" ]]; then
+              echo "::warning::Could not fetch details for linked issue #${LINKED_ISSUE_NUMBER}."
+              LINKED_ISSUE_TITLE="Error fetching title for #${LINKED_ISSUE_NUMBER}"
+              LINKED_ISSUE_BODY="Error fetching body for #${LINKED_ISSUE_NUMBER}"
+          else
+              LINKED_ISSUE_TITLE=$(echo "$ISSUE_DETAILS_JSON" | jq -r '.title // empty')
+              LINKED_ISSUE_BODY=$(echo "$ISSUE_DETAILS_JSON" | jq -r '.body // empty')
+              echo "Fetched details for issue #${LINKED_ISSUE_NUMBER}."
+          fi
+
+          echo "linked_issue_number=$LINKED_ISSUE_NUMBER" >> $GITHUB_OUTPUT
+          echo "linked_issue_title<<EOF_LINKED_ISSUE_TITLE" >> $GITHUB_OUTPUT
+          echo "$LINKED_ISSUE_TITLE" >> $GITHUB_OUTPUT
+          echo "EOF_LINKED_ISSUE_TITLE" >> $GITHUB_OUTPUT
+          echo "linked_issue_body<<EOF_LINKED_ISSUE_BODY" >> $GITHUB_OUTPUT
+          echo "$LINKED_ISSUE_BODY" >> $GITHUB_OUTPUT
+          echo "EOF_LINKED_ISSUE_BODY" >> $GITHUB_OUTPUT
+
+      - name: Fetch PR Details (Title, Body, SHAs, RefName)
+        id: format_pr_details
+        if: github.event_name == 'issue_comment'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.issue.number }}
+        run: |
+          echo "::group::Fetch PR Details"
+          set -e
+          PR_DATA_JSON=$(gh pr view "$PR_NUMBER" --json baseRefOid,headRefOid,headRefName,title,body --repo "${GITHUB_REPOSITORY}" 2> pr_details_stderr.log || echo "FETCH_FAILED")
+          if [[ "$PR_DATA_JSON" == "FETCH_FAILED" ]]; then
+            echo "::error::Failed to fetch PR details."; cat pr_details_stderr.log >&2
+            # Set default error values
+            echo "PR_TITLE=Error fetching PR title" >> $GITHUB_ENV
+            echo "PR_BODY=Error fetching PR body" >> $GITHUB_ENV
+            echo "BASE_SHA=" >> $GITHUB_ENV
+            echo "HEAD_SHA=" >> $GITHUB_ENV
+            echo "HEAD_REF_NAME=" >> $GITHUB_ENV
+          else
+            PR_TITLE=$(echo "$PR_DATA_JSON" | jq -r .title)
+            PR_BODY=$(echo "$PR_DATA_JSON" | jq -r .body)
+            BASE_SHA=$(echo "$PR_DATA_JSON" | jq -r .baseRefOid)
+            HEAD_SHA=$(echo "$PR_DATA_JSON" | jq -r .headRefOid)
+            HEAD_REF_NAME=$(echo "$PR_DATA_JSON" | jq -r .headRefName)
+
+            echo "PR_TITLE<<EOF_PR_TITLE" >> $GITHUB_ENV; echo "$PR_TITLE" >> $GITHUB_ENV; echo "EOF_PR_TITLE" >> $GITHUB_ENV
+            echo "PR_BODY<<EOF_PR_BODY" >> $GITHUB_ENV; echo "$PR_BODY" >> $GITHUB_ENV; echo "EOF_PR_BODY" >> $GITHUB_ENV
+            echo "BASE_SHA=$BASE_SHA" >> $GITHUB_ENV
+            echo "HEAD_SHA=$HEAD_SHA" >> $GITHUB_ENV
+            echo "HEAD_REF_NAME=$HEAD_REF_NAME" >> $GITHUB_ENV
+            echo "Fetched PR Details: Title='${PR_TITLE:0:50}...', BaseSHA=$BASE_SHA, HeadSHA=$HEAD_SHA, RefName=$HEAD_REF_NAME"
+          fi
+          echo "::endgroup::"
+
+      - name: Fetch Standard Comments (PR)
+        id: format_fetch_comments
+        if: github.event_name == 'issue_comment'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.issue.number }}
+        run: |
+          echo "::group::Fetch Standard Comments (PR)"
+          set -e
+          COMMENTS_XML=""
+          # Fetch comments associated with the PR's underlying issue number
+          STD_COMMENTS_JSON=$(gh api "/repos/${GITHUB_REPOSITORY}/issues/${PR_NUMBER}/comments" --paginate 2> comments_stderr.log || echo "FETCH_FAILED")
+          if [[ "$STD_COMMENTS_JSON" == "FETCH_FAILED" || -z "$STD_COMMENTS_JSON" ]]; then
+              echo "::warning::Failed to fetch standard comments or received empty response."
+              if [[ -s comments_stderr.log ]]; then cat comments_stderr.log; fi
+          elif echo "$STD_COMMENTS_JSON" | jq -e '. | type == "array"' > /dev/null 2>&1; then
+              TSV_OUTPUT=$(echo "$STD_COMMENTS_JSON" | jq -r '.[] | select(.body != null) | [.user.login // "unknown", .created_at // "N/A", .body] | @tsv' 2> jq_std_error.log)
+              JQ_EXIT_CODE=$?
+              if [[ $JQ_EXIT_CODE -eq 0 && -n "$TSV_OUTPUT" ]]; then
+                  while IFS=$'\t' read -r login created_at body; do
+                      [[ -n "$login" || -n "$created_at" || -n "$body" ]] || continue
+                      # Basic XML escaping for CDATA section content
+                      body_escaped=$(echo "$body" | sed 's/]]>/]]\\&gt;/g')
+                      COMMENTS_XML="${COMMENTS_XML}<comment type=\"issue\"><author>$login</author><timestamp>$created_at</timestamp><content><![CDATA[${body_escaped}]]></content></comment>"
+                  done <<< "$TSV_OUTPUT"
+              elif [[ $JQ_EXIT_CODE -ne 0 ]]; then
+                  echo "::warning::jq failed processing standard comments (exit code $JQ_EXIT_CODE). Error log:"; cat jq_std_error.log
+              fi
+          else
+              echo "::warning::Fetched standard comments data is not a valid JSON array."
+          fi
+          echo "STANDARD_COMMENTS_XML<<EOF_COMMENTS_XML" >> $GITHUB_ENV; echo "$COMMENTS_XML" >> $GITHUB_ENV; echo "EOF_COMMENTS_XML" >> $GITHUB_ENV
+          echo "Fetched ${#COMMENTS_XML} bytes of standard comment XML."
+          echo "::endgroup::"
+
+      - name: Fetch PR Review Comments & Bodies
+        id: format_pr_reviews
+        if: github.event_name == 'issue_comment'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.issue.number }}
+        run: |
+          echo "::group::Fetch PR Review Comments & Bodies"
+          set -e
+          REVIEW_COMMENTS_XML=""
+          # Fetch review comments specifically on the PR diff
+          REVIEW_COMMENTS_JSON=$(gh api "/repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}/comments" --paginate 2> rev_comments_stderr.log || echo "FETCH_FAILED")
+          if [[ "$REVIEW_COMMENTS_JSON" != "FETCH_FAILED" && -n "$REVIEW_COMMENTS_JSON" ]] && echo "$REVIEW_COMMENTS_JSON" | jq -e '. | type == "array"' > /dev/null 2>&1; then
+            TSV_OUTPUT=$(echo "$REVIEW_COMMENTS_JSON" | jq -r '.[]|select(.body!=null)|[.user.login//"?",.created_at//"N/A",.body,.path//"?",.diff_hunk//"",(.line//.original_line//"N/A")]|@tsv' 2>jq_rev_com_err.log)
+            if [[ $? -eq 0 && -n "$TSV_OUTPUT" ]]; then
+              while IFS=$'\t' read -r u t b p h l; do
+                [[ -n "$u"||-n "$t"||-n "$b" ]] || continue
+                h_esc=$(echo "$h" | sed 's/]]>/]]\\&gt;/g'); b_esc=$(echo "$b" | sed 's/]]>/]]\\&gt;/g'); p_esc=$(echo "$p" | sed 's/&/\&amp;/g; s/</\&lt;/g; s/>/\&gt;/g; s/"/\&quot;/g; s/'"'"'/\&apos;/g') # XML escape path
+                REVIEW_COMMENTS_XML="${REVIEW_COMMENTS_XML}<comment type=\"review_comment\" file=\"$p_esc\" line=\"$l\"><author>$u</author><timestamp>$t</timestamp><diff_hunk><![CDATA[$h_esc]]></diff_hunk><content><![CDATA[$b_esc]]></content></comment>"
+              done <<< "$TSV_OUTPUT"
+            elif [[ $? -ne 0 ]]; then echo "::warning::jq failed processing review comments. Error log:"; cat jq_rev_com_err.log; fi
+          elif [[ "$REVIEW_COMMENTS_JSON" == "FETCH_FAILED" ]]; then echo "::warning::Failed to fetch review comments."; if [[ -s rev_comments_stderr.log ]]; then cat rev_comments_stderr.log; fi;
+          fi
+
+          # Fetch overall PR reviews (which might have bodies)
+          REVIEWS_JSON=$(gh api "/repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}/reviews" --paginate 2> reviews_stderr.log || echo "FETCH_FAILED")
+          if [[ "$REVIEWS_JSON" != "FETCH_FAILED" && -n "$REVIEWS_JSON" ]] && echo "$REVIEWS_JSON" | jq -e '. | type == "array"' > /dev/null 2>&1; then
+            TSV_OUTPUT=$(echo "$REVIEWS_JSON" | jq -r '.[]|select(.body!=null and .body!="")|[.user.login//"?",.submitted_at//"N/A",.body,.state//"N/A"]|@tsv' 2>jq_rev_err.log)
+            if [[ $? -eq 0 && -n "$TSV_OUTPUT" ]]; then
+              while IFS=$'\t' read -r u t b s; do
+                [[ -n "$u"||-n "$t"||-n "$b" ]] || continue
+                b_esc=$(echo "$b" | sed 's/]]>/]]\\&gt;/g')
+                REVIEW_COMMENTS_XML="${REVIEW_COMMENTS_XML}<comment type=\"review_body\" state=\"$s\"><author>$u</author><timestamp>$t</timestamp><content><![CDATA[$b_esc]]></content></comment>"
+               done <<< "$TSV_OUTPUT"
+            elif [[ $? -ne 0 ]]; then echo "::warning::jq failed processing reviews. Error log:"; cat jq_rev_err.log; fi
+          elif [[ "$REVIEWS_JSON" == "FETCH_FAILED" ]]; then echo "::warning::Failed to fetch reviews."; if [[ -s reviews_stderr.log ]]; then cat reviews_stderr.log; fi;
+          fi
+          echo "REVIEW_COMMENTS_XML<<EOF_REVIEW_COMMENTS_XML" >> $GITHUB_ENV; echo "$REVIEW_COMMENTS_XML" >> $GITHUB_ENV; echo "EOF_REVIEW_COMMENTS_XML" >> $GITHUB_ENV
+          echo "Fetched ${#REVIEW_COMMENTS_XML} bytes of review comment XML."
+          echo "::endgroup::"
+
+      - name: Fetch PR Diff
+        id: format_pr_diff
+        if: github.event_name == 'issue_comment'
+        env:
+          BASE_SHA: ${{ env.BASE_SHA }}
+          HEAD_SHA: ${{ env.HEAD_SHA }}
+        run: |
+          echo "::group::Fetch PR Diff"
+          PR_DIFF="<!-- Diff generation failed or skipped -->"
+          if [[ -z "$BASE_SHA" || -z "$HEAD_SHA" || "$BASE_SHA" == "null" || "$HEAD_SHA" == "null" ]]; then
+            echo "::warning::Cannot run git diff without valid base/head SHAs (Base: '$BASE_SHA', Head: '$HEAD_SHA')."
+          else
+            echo "Fetching diff between $BASE_SHA...$HEAD_SHA"
+            # Fetching the diff without complex filtering for now
+            set +e
+            RAW_DIFF=$(git diff "${BASE_SHA}...${HEAD_SHA}")
+            DIFF_EXIT_CODE=$?
+            set -e
+            if [[ $DIFF_EXIT_CODE -ne 0 ]]; then
+              echo "::warning::git diff command failed with exit code $DIFF_EXIT_CODE."
+              PR_DIFF="<!-- Error running git diff -->"
+            elif [[ -z "$RAW_DIFF" ]]; then
+              PR_DIFF="<!-- No changes detected in diff -->"
+            else
+              # Simple XML escaping for CDATA
+              PR_DIFF=$(echo "$RAW_DIFF" | sed 's/]]>/]]\\&gt;/g')
+            fi
+          fi
+          echo "PR_DIFF<<EOF_PR_DIFF" >> $GITHUB_ENV; echo "$PR_DIFF" >> $GITHUB_ENV; echo "EOF_PR_DIFF" >> $GITHUB_ENV
+          echo "Fetched diff (approx size: ${#PR_DIFF} bytes)."
+          echo "::endgroup::"
+
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
@@ -79,93 +273,144 @@ jobs:
         run: |
           PROMPT_FILE_PATH=".github/aider/issue-prompt.txt"
           mkdir -p .github/aider
+          LINKED_ISSUE_TITLE="${{ steps.get_linked_issue.outputs.linked_issue_title }}"
+          LINKED_ISSUE_BODY="${{ steps.get_linked_issue.outputs.linked_issue_body }}"
+          LINKED_ISSUE_NUMBER="${{ steps.get_linked_issue.outputs.linked_issue_number }}"
 
           if [[ "${{ github.event_name }}" == "issues" ]]; then
-            echo "Event Type: Issues. Using existing logic to build prompt."
+            echo "Event Type: Issues. Using existing external API logic."
             ISSUE_TITLE_Q=$(printf '%q' "${{ github.event.issue.title }}")
             ISSUE_BODY_Q=$(printf '%q' "${{ github.event.issue.body }}")
-
-            echo "Sending issue content to external API…"
-
-            JSON_PAYLOAD=$(jq -n \
-              --arg title "$ISSUE_TITLE_Q" \
-              --arg body "$ISSUE_BODY_Q" \
-              '{"body":{"issue_title":$title,"issue_body":$body}}')
-
-            API_RESULT=$(curl -s -w "\n%{http_code}" \
+            JSON_PAYLOAD=$(jq -n --arg title "$ISSUE_TITLE_Q" --arg body "$ISSUE_BODY_Q" '{"body":{"issue_title":$title,"issue_body":$body}}')
+            API_RESULT=$(curl -s -w "\\n%{http_code}" \
               -X POST "https://app.windmill.dev/api/r/test1245/issue-trigger" \
-              -H "Content-Type: application/json" \
-              --data-binary "$JSON_PAYLOAD" \
-              --max-time 90)
-
-            HTTP_CODE=$(echo "$API_RESULT" | tail -n1)
-            BODY=$(echo "$API_RESULT" | sed '$d')
-
-            echo "$BODY" > /tmp/api_response.txt
-
-            if [[ "$HTTP_CODE" -eq 200 ]]; then
-              PROMPT=$(jq -r '.processed_prompt // .effective_body // .message // empty' /tmp/api_response.txt)
-              if [[ -z "$PROMPT" || "$PROMPT" == "null" ]]; then
-                echo "::warning::API returned 200 but no prompt; falling back to raw issue."
-                printf "Please fix the issue described below:\n\nTitle: %s\n\nBody:\n%s" \
-                  "${{ github.event.issue.title }}" \
-                  "${{ github.event.issue.body }}" > "$PROMPT_FILE_PATH"
-              else
-                echo "$PROMPT" > "$PROMPT_FILE_PATH"
-              fi
-            else
-              echo "::warning::API call failed (HTTP $HTTP_CODE). Falling back to raw issue."
-              printf "Please fix the issue described below:\n\nTitle: %s\n\nBody:\n%s" \
-                "${{ github.event.issue.title }}" \
-                "${{ github.event.issue.body }}" > "$PROMPT_FILE_PATH"
-            fi
+              -H "Content-Type: application/json" --data-binary "$JSON_PAYLOAD" --max-time 90)
+            HTTP_CODE=$(echo "$API_RESULT" | tail -n1); BODY=$(echo "$API_RESULT" | sed '$d'); echo "$BODY" > /tmp/api_response.txt
+            if [[ "$HTTP_CODE" -eq 200 ]]; then PROMPT=$(jq -r '.processed_prompt // .effective_body // .message // empty' /tmp/api_response.txt); if [[ -z "$PROMPT" || "$PROMPT" == "null" ]]; then echo "::warning::API returned 200 but no prompt; falling back."; printf "Please fix the issue described below:\n\nTitle: %s\n\nBody:\n%s" "${{ github.event.issue.title }}" "${{ github.event.issue.body }}" > "$PROMPT_FILE_PATH"; else echo "$PROMPT" > "$PROMPT_FILE_PATH"; fi;
+            else echo "::warning::API call failed (HTTP $HTTP_CODE). Falling back."; printf "Please fix the issue described below:\n\nTitle: %s\n\nBody:\n%s" "${{ github.event.issue.title }}" "${{ github.event.issue.body }}" > "$PROMPT_FILE_PATH"; fi
             rm -f /tmp/api_response.txt
 
           elif [[ "${{ github.event_name }}" == "issue_comment" ]]; then
-            echo "Event Type: Issue Comment on PR #${{ github.event.issue.number }}"
-            RAW_COMMENT_BODY="${{ github.event.comment.body }}"
-            COMMENT_CONTENT="${RAW_COMMENT_BODY#*/aider}"
-            COMMENT_CONTENT="${COMMENT_CONTENT#"${COMMENT_CONTENT%%[![:space:]]*}"}"
-            COMMENT_CONTENT="${COMMENT_CONTENT%"${COMMENT_CONTENT##*[![:space:]]}"}"
+            echo "Event Type: Issue Comment on PR #${{ github.event.issue.number }}. Assembling detailed prompt."
 
-            if [[ -z "$COMMENT_CONTENT" ]]; then
-              echo "::error::Comment with /aider provided, but no instruction found after it. Cannot proceed."
+            # Fetch context from environment variables set by previous steps
+            PR_NUMBER="${{ github.event.issue.number }}"
+            PR_TITLE="${{ env.PR_TITLE }}"
+            PR_BODY="${{ env.PR_BODY }}"
+            STANDARD_COMMENTS_XML="${{ env.STANDARD_COMMENTS_XML }}"
+            REVIEW_COMMENTS_XML="${{ env.REVIEW_COMMENTS_XML }}"
+            PR_DIFF="${{ env.PR_DIFF }}"
+            COMMENT_AUTHOR="${{ github.event.comment.user.login }}"
+            COMMENT_TIMESTAMP="${{ github.event.comment.created_at }}"
+
+            # Extract user's request from the triggering comment
+            RAW_COMMENT_BODY="${{ github.event.comment.body }}"
+            USER_COMMENT_REQUEST="${RAW_COMMENT_BODY#*/aider}"
+            USER_COMMENT_REQUEST="${USER_COMMENT_REQUEST#"${USER_COMMENT_REQUEST%%[![:space:]]*}"}" # Trim leading whitespace
+            USER_COMMENT_REQUEST="${USER_COMMENT_REQUEST%"${USER_COMMENT_REQUEST##*[![:space:]]}"}" # Trim trailing whitespace
+
+            if [[ -z "$USER_COMMENT_REQUEST" ]]; then
+              echo "::error::Comment with /aider provided, but no instruction found after it."
               printf "Error: /aider command found but no instruction followed." > "$PROMPT_FILE_PATH"
               exit 1
-            else
-              echo "Using comment content as prompt."
-              echo "$COMMENT_CONTENT" > "$PROMPT_FILE_PATH"
             fi
+
+            # Escape user request for CDATA
+            USER_COMMENT_REQUEST_ESCAPED=$(echo "$USER_COMMENT_REQUEST" | sed 's/]]>/]]\\&gt;/g')
+
+            # Assemble the final prompt string
+            FORMATTED_PROMPT="<github_context type=\"pr\" number=\"$PR_NUMBER\">"
+            FORMATTED_PROMPT="${FORMATTED_PROMPT}<details><title><![CDATA[${PR_TITLE}]]></title><body><![CDATA[${PR_BODY}]]></body></details>"
+            FORMATTED_PROMPT="${FORMATTED_PROMPT}<diff><![CDATA[${PR_DIFF}]]></diff>"
+            FORMATTED_PROMPT="${FORMATTED_PROMPT}<comments>${STANDARD_COMMENTS_XML}${REVIEW_COMMENTS_XML}</comments>"
+
+            # Add linked issue context if available
+            if [[ -n "$LINKED_ISSUE_NUMBER" ]]; then
+              LINKED_TITLE_ESCAPED=$(echo "$LINKED_ISSUE_TITLE" | sed 's/]]>/]]\\&gt;/g')
+              LINKED_BODY_ESCAPED=$(echo "$LINKED_ISSUE_BODY" | sed 's/]]>/]]\\&gt;/g')
+              FORMATTED_PROMPT="${FORMATTED_PROMPT}<linked_issue number=\"${LINKED_ISSUE_NUMBER}\"><title><![CDATA[${LINKED_TITLE_ESCAPED}]]></title><body><![CDATA[${LINKED_BODY_ESCAPED}]]></body></linked_issue>"
+            fi
+
+            FORMATTED_PROMPT="${FORMATTED_PROMPT}<user_request author=\"${COMMENT_AUTHOR}\" timestamp=\"${COMMENT_TIMESTAMP}\"><![CDATA[${USER_COMMENT_REQUEST_ESCAPED}]]></user_request>"
+            FORMATTED_PROMPT="${FORMATTED_PROMPT}</github_context>"
+            FORMATTED_PROMPT="${FORMATTED_PROMPT}<instructions><![CDATA[You are Aider, an AI Pair Programmer. You are reviewing a Pull Request. The user has provided a request in the <user_request> tag. Use the full context provided (PR details, diff, comments, linked issue) to understand the PR and the request. Apply the requested changes to the specified files.]]></instructions>"
+
+            echo "$FORMATTED_PROMPT" > "$PROMPT_FILE_PATH"
+            echo "Detailed prompt assembled and written to $PROMPT_FILE_PATH (Size: ${#FORMATTED_PROMPT} bytes)"
+
           else
             echo "::error::Unhandled event type: ${{ github.event_name }}"
             exit 1
           fi
-          echo "Prompt determined and written to $PROMPT_FILE_PATH"
+          # Ensure output is set regardless of path
           echo "PROMPT_FILE_PATH=$PROMPT_FILE_PATH" >> $GITHUB_OUTPUT
 
       - name: Probe Chat for Relevant Files
         id: probe_files
         env:
           PROMPT_CONTENT_FILE: ${{ steps.determine_prompt.outputs.PROMPT_FILE_PATH }}
+          # Pass key context for probe focus
+          PR_TITLE: ${{ env.PR_TITLE }} # Available only on PR trigger
+          LINKED_ISSUE_TITLE: ${{ steps.get_linked_issue.outputs.linked_issue_title }} # Available only on PR trigger if linked
+          LINKED_ISSUE_NUMBER: ${{ steps.get_linked_issue.outputs.linked_issue_number }}
+          EVENT_NAME: ${{ github.event_name }}
         run: |
           echo "Running probe-chat to find relevant files..."
           if [[ ! -f "$PROMPT_CONTENT_FILE" ]]; then
             echo "::error::Prompt file $PROMPT_CONTENT_FILE not found!"
             exit 1
           fi
-          PROMPT_CONTENT=$(cat "$PROMPT_CONTENT_FILE")
-          if [ -z "$PROMPT_CONTENT" ]; then
-             echo "::error::Prompt content is empty!"
+
+          # Extract the core user request for probe-chat
+          # For issues trigger, it's the whole file (or from API)
+          # For PR comment trigger, extract from the structured prompt
+          USER_REQUEST_FOR_PROBE=""
+          if [[ "$EVENT_NAME" == "issues" ]]; then
+              USER_REQUEST_FOR_PROBE=$(cat "$PROMPT_CONTENT_FILE")
+          elif [[ "$EVENT_NAME" == "issue_comment" ]]; then
+              # Attempt to extract content from <user_request> CDATA using basic tools
+              USER_REQUEST_FOR_PROBE=$(sed -n 's/.*<user_request.*><!\[CDATA\[\(.*\)\]\]><\/user_request>.*/\1/p' "$PROMPT_CONTENT_FILE")
+              if [[ -z "$USER_REQUEST_FOR_PROBE" ]]; then
+                 echo "::warning::Could not extract user request from structured prompt for probe. Falling back to raw comment body."
+                 # Fallback to raw comment body (might be less accurate)
+                 RAW_COMMENT_BODY="${{ github.event.comment.body }}"
+                 USER_REQUEST_FOR_PROBE="${RAW_COMMENT_BODY#*/aider}"
+                 USER_REQUEST_FOR_PROBE="${USER_REQUEST_FOR_PROBE#"${USER_REQUEST_FOR_PROBE%%[![:space:]]*}"}"
+                 USER_REQUEST_FOR_PROBE="${USER_REQUEST_FOR_PROBE%"${USER_REQUEST_FOR_PROBE##*[![:space:]]}"}"
+              fi
+          fi
+
+          if [[ -z "$USER_REQUEST_FOR_PROBE" ]]; then
+             echo "::error::Could not determine user request for probe!"
              exit 1
           fi
 
-          PROMPT_ESCAPED=$(jq -Rs . <<< "$PROMPT_CONTENT")
+          # Prepare context for probe prompt
+          CONTEXT_FOR_PROBE=""
+          if [[ "$EVENT_NAME" == "issue_comment" ]]; then
+             CONTEXT_FOR_PROBE="PR Title: $PR_TITLE\\n"
+             if [[ -n "$LINKED_ISSUE_NUMBER" ]]; then
+                CONTEXT_FOR_PROBE="${CONTEXT_FOR_PROBE}Linked Issue #$LINKED_ISSUE_NUMBER Title: $LINKED_ISSUE_TITLE\\n"
+             fi
+             CONTEXT_FOR_PROBE="${CONTEXT_FOR_PROBE}User Request: $USER_REQUEST_FOR_PROBE"
+          else # Issues trigger
+             CONTEXT_FOR_PROBE="Issue Context: $USER_REQUEST_FOR_PROBE" # User request here is the issue title/body/API result
+          fi
 
-          MESSAGE_FOR_PROBE=$(jq -n --arg prompt_escaped "$PROMPT_ESCAPED" \
-            '{ "message": "I'\''m giving you a request that needs to be implemented. Your role is to give me the files that are relevant to the request. The request is prepended with the word REQUEST.\\nREQUEST: \($prompt_escaped). Give me all the files relevant to this request. Your output MUST be a single json array that can be parsed with programatic json parsing, with the relevant files. Files can be rust or typescript or javascript files. DO NOT INCLUDE ANY OTHER TEXT IN YOUR OUTPUT. ONLY THE JSON ARRAY. Example of output: [\"file1.py\", \"file2.py\"]" }' | jq -r .message)
+          # Escape the context for JSON message
+          MESSAGE_ESCAPED=$(jq -Rs . <<< "$CONTEXT_FOR_PROBE")
+
+          # Construct the final message for probe-chat
+          BASE_INSTRUCTION="Based *only* on the following context (PR/Issue Title, User Request), identify the relevant files needed to implement the user's request."
+          OUTPUT_INSTRUCTION="Output MUST be a single JSON array of file paths. Example: [\\\"src/main.rs\\\", \\\"lib/utils.ts\\\"]. DO NOT include explanations or any other text."
+          FINAL_MESSAGE_FOR_PROBE=$(printf "%s\\n\\nContext:\\n%s\\n\\n%s" "$BASE_INSTRUCTION" "$MESSAGE_ESCAPED" "$OUTPUT_INSTRUCTION")
+
+          echo "Message being sent to probe-chat:"
+          echo "$FINAL_MESSAGE_FOR_PROBE"
 
           set -o pipefail
-          PROBE_OUTPUT=$(npx --yes @buger/probe-chat@latest --model-name gemini-2.5-pro-preview-05-06 --message "$MESSAGE_FOR_PROBE" 2>&1) || {
+          # Send the constructed message using --message argument
+          PROBE_OUTPUT=$(echo "$FINAL_MESSAGE_FOR_PROBE" | npx --yes @buger/probe-chat@latest --model-name gemini-2.5-pro-preview-05-06 --message - 2>&1) || {
             echo "::error::probe-chat command failed. Output:"
             echo "$PROBE_OUTPUT"
             exit 1
@@ -181,16 +426,29 @@ jobs:
           FILES_LIST=$(echo "$JSON_FILES" | jq -e -r '[.[] | select(type == "string" and . != "" and . != null and (endswith("/") | not))] | map(@sh) | join(" ")' || echo "")
 
           if [[ -z "$FILES_LIST" ]]; then
-             echo "::warning::probe-chat did not identify any relevant files."
-             exit 1
+             # Allow proceeding even if no files found, aider step will handle it
+             echo "::warning::probe-chat did not identify any relevant files. Aider step might be skipped."
+             FILES_LIST="" # Ensure it's empty
           fi
 
           echo "Formatted files list for aider: $FILES_LIST"
           echo "FILES_TO_EDIT=$FILES_LIST" >> $GITHUB_ENV
 
       - name: Run Aider with external prompt
+        id: run_aider
         run: |
           echo "Files identified by probe-chat: ${{ env.FILES_TO_EDIT }}"
+          # Check if FILES_TO_EDIT is empty (probe might have found none)
+          if [[ -z "${{ env.FILES_TO_EDIT }}" ]]; then
+            echo "::warning::Probe chat identified no relevant files. Skipping aider execution."
+            echo "aider_output=Probe chat identified no relevant files to edit." >> $GITHUB_OUTPUT
+            # Do not exit, let the workflow continue to report this
+            exit 0
+          fi
+
+          # Aider will use the prompt file (.github/aider/issue-prompt.txt)
+          # which now contains the full structured context for PR comments
+          # or the API/issue context for issue triggers.
           aider \
             ${{ env.FILES_TO_EDIT }} \
             --model gemini/gemini-2.5-pro-preview-05-06 \
@@ -199,7 +457,12 @@ jobs:
             --no-check-update \
             --auto-commits \
             --no-analytics \
-            --no-stream
+            --no-stream | tee /tmp/aider_output.txt
+
+          AIDER_OUTPUT=$(cat /tmp/aider_output.txt)
+          echo "aider_output<<EOF" >> $GITHUB_OUTPUT
+          echo "$AIDER_OUTPUT" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
 
       - name: Clean up prompt file
         if: always()
@@ -209,6 +472,20 @@ jobs:
         id: commit_and_push
         if: ${{ success() }}
         run: |
+          if [[ "${{ steps.run_aider.outputs.aider_output }}" == "Probe chat identified no relevant files to edit." ]]; then
+            echo "Aider was skipped as no relevant files were found. No changes to commit or push."
+            echo "CHANGES_APPLIED_MESSAGE=Aider ran, but probe-chat found no relevant files to edit. No changes made." >> $GITHUB_OUTPUT
+            echo "PR_BRANCH_NAME=" >> $GITHUB_OUTPUT # Ensure this is empty
+            exit 0
+          fi
+          # Check if git status shows changes *after* aider ran
+          if [[ -z $(git status --porcelain) ]]; then
+            echo "Aider ran, but resulted in no file changes detected by git status."
+            echo "CHANGES_APPLIED_MESSAGE=Aider ran successfully, but made no effective changes to the files." >> $GITHUB_OUTPUT
+            echo "PR_BRANCH_NAME=" >> $GITHUB_OUTPUT # Ensure this is empty
+            exit 0
+          fi
+
           if [[ "${{ github.event_name }}" == "issues" ]]; then
             BRANCH_NAME="aider-fix-issue-${{ github.event.issue.number }}"
             git checkout -b $BRANCH_NAME
@@ -230,24 +507,35 @@ jobs:
           fi
 
       - name: Create Pull Request
-        if: success() && github.event_name == 'issues' && steps.commit_and_push.outputs.PR_BRANCH_NAME != ''
+        if: success() && github.event_name == 'issues' && steps.commit_and_push.outputs.PR_BRANCH_NAME != '' && steps.commit_and_push.outputs.PR_BRANCH_NAME != null
         uses: peter-evans/create-pull-request@v6
+        id: create_pr
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           commit-message: "[Aider PR] Add fixes for issue #${{ github.event.issue.number }}"
           branch: ${{ steps.commit_and_push.outputs.PR_BRANCH_NAME }}
           base: main
           delete-branch: true
+          title: "[Aider] Fix for Issue #${{ github.event.issue.number }}: ${{ github.event.issue.title }}"
+          body: |
+            This PR was automatically generated by Aider based on issue #${{ github.event.issue.number }}.
+
+            **Aider Output:**
+            ```
+            ${{ steps.run_aider.outputs.aider_output }}
+            ```
 
       - name: Comment on issue
         uses: peter-evans/create-or-update-comment@v4
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           issue-number: ${{ github.event.issue.number }}
+          env:
+            AIDER_MODEL: ${{ env.AIDER_MODEL || 'gemini/gemini-2.5-pro-preview-05-06' }}
           body: |
             ✅ Aider (via Gemini using `${{ env.AIDER_MODEL }}`) has processed your request triggered by a `${{ github.event_name }}` event.
 
             ${{ steps.commit_and_push.outputs.CHANGES_APPLIED_MESSAGE || 'Aider processing complete.' }}
 
-            ${{ github.event_name == 'issues' && steps.create_pull_request.outputs.pull-request-url && format('Pull Request created: {0}', steps.create_pull_request.outputs.pull-request-url) || '' }}
-            ${{ github.event_name == 'issues' && steps.commit_and_push.outputs.PR_BRANCH_NAME != '' && !steps.create_pull_request.outputs.pull-request-url && 'PR creation may have been skipped or failed for the pushed branch.' || '' }}
+            ${{ github.event_name == 'issues' && steps.create_pr.outputs.pull-request-url && format('Pull Request created: {0}', steps.create_pr.outputs.pull-request-url) || '' }}${{ github.event_name == 'issues' && steps.commit_and_push.outputs.PR_BRANCH_NAME != '' && !steps.create_pr.outputs.pull-request-url && '*(PR creation may have been skipped or failed)*' || '' }}
+            ${{ steps.run_aider.outputs.aider_output && steps.run_aider.outputs.aider_output != 'Probe chat identified no relevant files to edit.' && format('\\n**Aider Output:**\\n```\\n{0}\\n```', steps.run_aider.outputs.aider_output) || '' }}
