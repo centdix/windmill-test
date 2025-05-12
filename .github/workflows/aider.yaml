@@ -406,9 +406,9 @@ jobs:
           MESSAGE_ESCAPED=$(jq -Rs . <<< "$CONTEXT_FOR_PROBE")
 
           # Construct the final message for probe-chat
-          BASE_INSTRUCTION="Based *only* on the following context (PR/Issue Title, User Request), identify the relevant files needed to implement the user's request."
-          OUTPUT_INSTRUCTION="Output MUST be a single JSON array of file paths. Example: [\\\"src/main.rs\\\", \\\"lib/utils.ts\\\"]. DO NOT include explanations or any other text."
-          FINAL_MESSAGE_FOR_PROBE=$(printf "%s\\n\\nContext:\\n%s\\n\\n%s" "$BASE_INSTRUCTION" "$MESSAGE_ESCAPED" "$OUTPUT_INSTRUCTION")
+          BASE_INSTRUCTION="Your job is ONLY to generate a list of files that need to be edited to implement the user's request."
+          OUTPUT_INSTRUCTION="Output MUST be a single JSON array of file paths. Example: [\\\"src/main.rs\\\", \\\"lib/utils.ts\\\"]. DO NOT include explanations or any other text. Here is the user's request:"
+          FINAL_MESSAGE_FOR_PROBE=$(printf "%s\\n\\nContext:\\n%s\\n\\n%s" "$BASE_INSTRUCTION" "$OUTPUT_INSTRUCTION" "$MESSAGE_ESCAPED")
 
           echo "Message being sent to probe-chat:"
           echo "$FINAL_MESSAGE_FOR_PROBE"
