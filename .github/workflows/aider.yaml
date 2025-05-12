@@ -408,7 +408,7 @@ jobs:
           # Construct the final message for probe-chat
           BASE_INSTRUCTION="Your job is ONLY to generate a list of files that need to be edited to implement the user's request."
           OUTPUT_INSTRUCTION="Output MUST be a single JSON array of file paths. Example: [\\\"src/main.rs\\\", \\\"lib/utils.ts\\\"]. DO NOT include explanations or any other text. Here is the user's request:"
-          FINAL_MESSAGE_FOR_PROBE=$(printf "%s\\n\\nContext:\\n%s\\n\\n%s" "$BASE_INSTRUCTION" "$OUTPUT_INSTRUCTION" "$MESSAGE_ESCAPED")
+          FINAL_MESSAGE_FOR_PROBE=$(printf "%s\\n%s\\nContext:\\n%s" "$BASE_INSTRUCTION" "$OUTPUT_INSTRUCTION" "$MESSAGE_ESCAPED")
 
           echo "Message being sent to probe-chat:"
           echo "$FINAL_MESSAGE_FOR_PROBE"
@@ -477,20 +477,6 @@ jobs:
         id: commit_and_push
         if: ${{ success() }}
         run: |
-          if [[ "${{ steps.run_aider.outputs.aider_output }}" == "Probe chat identified no relevant files to edit." ]]; then
-            echo "Aider was skipped as no relevant files were found. No changes to commit or push."
-            echo "CHANGES_APPLIED_MESSAGE=Aider ran, but probe-chat found no relevant files to edit. No changes made." >> $GITHUB_OUTPUT
-            echo "PR_BRANCH_NAME=" >> $GITHUB_OUTPUT # Ensure this is empty
-            exit 0
-          fi
-          # Check if git status shows changes *after* aider ran
-          if [[ -z $(git status --porcelain) ]]; then
-            echo "Aider ran, but resulted in no file changes detected by git status."
-            echo "CHANGES_APPLIED_MESSAGE=Aider ran successfully, but made no effective changes to the files." >> $GITHUB_OUTPUT
-            echo "PR_BRANCH_NAME=" >> $GITHUB_OUTPUT # Ensure this is empty
-            exit 0
-          fi
-
           if [[ "${{ github.event_name }}" == "issues" ]]; then
             BRANCH_NAME="aider-fix-issue-${{ github.event.issue.number }}"
             git checkout -b $BRANCH_NAME
