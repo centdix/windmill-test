@@ -2334,33 +2334,64 @@ pub async fn get_script_content_by_hash(
 async fn try_validate_schema(
     job: &MiniPulledJob,
     conn: &Connection,
-    schema_validator: Option<&SchemaValidator>,
+    metadata_schema_validator: Option<&SchemaValidator>,
     code: &str,
     language: Option<&ScriptLang>,
-    schema: Option<&String>,
+    metadata_schema_string: Option<&String>,
 ) -> Result<(), Error> {
     if let Some(args) = job.args.as_ref() {
-        if let Some(sv) = schema_validator {
+        if let Some(sv) = metadata_schema_validator {
+            // Path 1: Validator was pre-built from stored schema (DB flag was true and schema was valid). Use it.
             sv.validate(args)?;
         } else {
+            // Path 2: No pre-built validator from metadata.
+            // This could be because:
+            //   - DB `schema_validation` flag was false.
+            //   - DB `schema_validation` flag was true, but stored `schema` string was NULL or invalid.
+            // We should attempt to build a validator if:
+            //   - The DB `schema_validation` flag for the job is true, OR
+            //   - The current script code contains the `// schema_validation` annotation.
+            let should_attempt_dynamic_validation = job.schema_validation.unwrap_or(false)
+                || language.map(|l| should_validate_schema(code, l)).unwrap_or(false);
+
             let validators_cache = cache::anon!({ (u8, ScriptHash) => Arc<Option<SchemaValidator>> } in "schemavalidators" <= 1000);
 
             let sv_fut = async move {
-                if language.map(|l| should_validate_schema(code, l)).unwrap_or(false) {
-                    if let Some(schema) = schema {
-                        Ok(Some(SchemaValidator::from_schema(schema)?))
-                    } else {
-                        if let Some(sig) = parse_sig_of_lang(
-                            code,
-                            language,
-                            job.script_entrypoint_override.clone(),
-                        )? {
+                if should_attempt_dynamic_validation {
+                    // Try to build/get schema:
+                    // 1. From metadata_schema_string (if DB flag was true but schema was bad/null, this might be None. If Preview, this is often None)
+                    // 2. Else, by inferring from current code's signature.
+                    if let Some(schema_str) = metadata_schema_string {
+                        match SchemaValidator::from_schema(schema_str) {
+                            Ok(validator) => Ok(Some(validator)),
+                            Err(e) => {
+                                // Stored schema string is invalid.
+                                // If DB flag insisted on validation & not a preview, this is an error.
+                                // Previews or annotation-only validation can fallback to inference.
+                                if job.schema_validation.unwrap_or(false) && !matches!(job.kind, JobKind::Preview | JobKind::FlowPreview) {
+                                    Err(Error::ArgumentErr(format!("Schema validation is enabled, but the stored schema is invalid: {e}")))
+                                } else {
+                                    // Fallback to inference for Previews or if validation was only triggered by an annotation.
+                                    if let Some(sig) = parse_sig_of_lang(code, language, job.script_entrypoint_override.clone())? {
+                                        Ok(Some(schema_validator_from_main_arg_sig(&sig)))
+                                    } else {
+                                        Err(anyhow!("Job was expected to validate the arguments schema (due to annotation or preview mode with invalid stored schema), but no schema was provided and couldn't be inferred for language `{language:?}`.").into())
+                                    }
+                                }
+                            }
+                        }
+                    } else { // metadata_schema_string is None.
+                        if let Some(sig) = parse_sig_of_lang(code, language, job.script_entrypoint_override.clone())? {
                             Ok(Some(schema_validator_from_main_arg_sig(&sig)))
                         } else {
-                            Err(anyhow!("Job was expected to validate the arguments schema, but no schema was provided and couldn't be inferred from the script for language `{language:?}`. Try removing schema validation for this job").into())
+                            // DB flag or annotation indicated validation, but no schema_str and inference failed.
+                             Err(anyhow!("Job was expected to validate the arguments schema, but no schema string was available and schema couldn't be inferred from signature for language `{language:?}`.").into())
                         }
                     }
-                } else { Ok(None) }
+                } else {
+                    // No DB flag and no annotation implies no validation.
+                    Ok(None)
+                }
             }
             .map_ok(Arc::new);
 
