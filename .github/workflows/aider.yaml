@@ -118,37 +118,37 @@ jobs:
 
       - name: Fetch PR Details (Title, Body, SHAs, RefName)
         id: format_pr_details
-        if: github.event_name == 'issue_comment'
+        if: env.FINAL_CONTEXT_TYPE == 'pr'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITHUB_REPOSITORY: ${{ github.repository }}
-          PR_NUMBER: ${{ github.event.issue.number }}
+          PR_NUMBER: ${{ env.ISSUE_OR_PR_NUMBER }}
         run: |
-          echo "::group::Fetch PR Details"
+          echo "::group::Fetch PR Details (like probe-base)"
           set -e
-          PR_DATA_JSON=$(gh pr view "$PR_NUMBER" --json baseRefOid,headRefOid,headRefName,title,body --repo "${GITHUB_REPOSITORY}" 2> pr_details_stderr.log || echo "FETCH_FAILED")
-          if [[ "$PR_DATA_JSON" == "FETCH_FAILED" ]]; then
-            echo "::error::Failed to fetch PR details."; cat pr_details_stderr.log >&2
-            # Set default error values
-            echo "PR_TITLE=Error fetching PR title" >> $GITHUB_ENV
-            echo "PR_BODY=Error fetching PR body" >> $GITHUB_ENV
-            echo "BASE_SHA=" >> $GITHUB_ENV
-            echo "HEAD_SHA=" >> $GITHUB_ENV
-            echo "HEAD_REF_NAME=" >> $GITHUB_ENV
-          else
-            PR_TITLE=$(echo "$PR_DATA_JSON" | jq -r .title)
-            PR_BODY=$(echo "$PR_DATA_JSON" | jq -r .body)
-            BASE_SHA=$(echo "$PR_DATA_JSON" | jq -r .baseRefOid)
-            HEAD_SHA=$(echo "$PR_DATA_JSON" | jq -r .headRefOid)
-            HEAD_REF_NAME=$(echo "$PR_DATA_JSON" | jq -r .headRefName)
-
-            echo "PR_TITLE<<EOF_PR_TITLE" >> $GITHUB_ENV; echo "$PR_TITLE" >> $GITHUB_ENV; echo "EOF_PR_TITLE" >> $GITHUB_ENV
-            echo "PR_BODY<<EOF_PR_BODY" >> $GITHUB_ENV; echo "$PR_BODY" >> $GITHUB_ENV; echo "EOF_PR_BODY" >> $GITHUB_ENV
-            echo "BASE_SHA=$BASE_SHA" >> $GITHUB_ENV
-            echo "HEAD_SHA=$HEAD_SHA" >> $GITHUB_ENV
-            echo "HEAD_REF_NAME=$HEAD_REF_NAME" >> $GITHUB_ENV
-            echo "Fetched PR Details: Title='${PR_TITLE:0:50}...', BaseSHA=$BASE_SHA, HeadSHA=$HEAD_SHA, RefName=$HEAD_REF_NAME"
+          # Fetch SHAs and RefName first (mirroring probe-base)
+          PR_REFS_JSON=$(gh pr view "$PR_NUMBER" --json baseRefOid,headRefOid,headRefName --repo "${GITHUB_REPOSITORY}" 2> pr_refs_stderr.log || echo "FETCH_FAILED")
+          BASE_SHA=""; HEAD_SHA=""; HEAD_REF_NAME=""
+          if [[ "$PR_REFS_JSON" == "FETCH_FAILED" ]]; then echo "::error::Failed to fetch PR SHAs/RefName."; cat pr_refs_stderr.log >&2; else
+            BASE_SHA=$(echo "$PR_REFS_JSON" | jq -r .baseRefOid); HEAD_SHA=$(echo "$PR_REFS_JSON" | jq -r .headRefOid); HEAD_REF_NAME=$(echo "$PR_REFS_JSON" | jq -r .headRefName)
+            if [[ -z "$BASE_SHA" || "$BASE_SHA" == "null" || -z "$HEAD_SHA" || "$HEAD_SHA" == "null" || -z "$HEAD_REF_NAME" || "$HEAD_REF_NAME" == "null" ]]; then
+              echo "::error::Could not extract valid base SHA, head SHA, or head ref name from JSON: $PR_REFS_JSON"; BASE_SHA=""; HEAD_SHA=""; HEAD_REF_NAME=""
+            else echo "Fetched SHAs/Ref: Base=$BASE_SHA, Head=$HEAD_SHA, Ref=$HEAD_REF_NAME"; fi
           fi
+          echo "BASE_SHA=$BASE_SHA" >> $GITHUB_ENV; echo "HEAD_SHA=$HEAD_SHA" >> $GITHUB_ENV; echo "HEAD_REF_NAME=$HEAD_REF_NAME" >> $GITHUB_ENV
+
+          # Fetch Title and Body separately (mirroring probe-base)
+          PR_DATA_JSON=$(gh pr view "$PR_NUMBER" --json title,body --repo "${GITHUB_REPOSITORY}" 2> pr_details_stderr.log || echo 'FETCH_FAILED')
+          PR_TITLE="Error fetching title"; PR_BODY="Error fetching body"
+          if [[ "$PR_DATA_JSON" != "FETCH_FAILED" ]]; then
+            PR_TITLE=$(echo "$PR_DATA_JSON" | jq -r '.title // "Error fetching title"'); PR_BODY=$(echo "$PR_DATA_JSON" | jq -r '.body // "Error fetching body"')
+            echo "Fetched Title/Body: Title='${PR_TITLE:0:50}...'"
+          else
+             echo "::error::Failed to fetch PR title/body."; cat pr_details_stderr.log >&2 # Reuse stderr log
+          fi
+          echo "PR_TITLE<<EOF_PR_TITLE" >> $GITHUB_ENV; echo "$PR_TITLE" >> $GITHUB_ENV; echo "EOF_PR_TITLE" >> $GITHUB_ENV
+          echo "PR_BODY<<EOF_PR_BODY" >> $GITHUB_ENV; echo "$PR_BODY" >> $GITHUB_ENV; echo "EOF_PR_BODY" >> $GITHUB_ENV
+
           echo "::endgroup::"
 
       - name: Fetch Standard Comments (PR)
@@ -229,36 +229,62 @@ jobs:
           echo "Fetched ${#REVIEW_COMMENTS_XML} bytes of review comment XML."
           echo "::endgroup::"
 
+      - name: Fetch Issue Details (Title, Body)
+        id: format_issue_details
+        if: env.FINAL_CONTEXT_TYPE == 'issue'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          ISSUE_NUMBER: ${{ env.ISSUE_OR_PR_NUMBER }}
+        run: |
+          echo "::group::Fetch Issue Details (Title, Body)"; set -e
+          ISSUE_DATA_JSON=$(gh issue view "$ISSUE_NUMBER" --json title,body --repo "${GITHUB_REPOSITORY}" 2>/dev/null || echo 'FETCH_FAILED')
+          ISSUE_TITLE="Error fetching title"; ISSUE_BODY="Error fetching body"
+          if [[ "$ISSUE_DATA_JSON" != "FETCH_FAILED" && -n "$ISSUE_DATA_JSON" ]]; then
+            ISSUE_TITLE=$(printf "%s" "$ISSUE_DATA_JSON" | jq -r '.title // "Error fetching title"')
+            ISSUE_BODY=$(printf "%s" "$ISSUE_DATA_JSON" | jq -r '.body // "Error fetching body"')
+          fi
+          echo "ISSUE_TITLE<<EOF_ISSUE_TITLE" >> $GITHUB_ENV; echo "$ISSUE_TITLE" >> $GITHUB_ENV; echo "EOF_ISSUE_TITLE" >> $GITHUB_ENV
+          echo "ISSUE_BODY<<EOF_ISSUE_BODY" >> $GITHUB_ENV; echo "$ISSUE_BODY" >> $GITHUB_ENV; echo "EOF_ISSUE_BODY" >> $GITHUB_ENV
+          echo "Fetched issue details: Title='${ISSUE_TITLE:0:50}...'"
+          echo "::endgroup::"
+
       - name: Fetch PR Diff
         id: format_pr_diff
-        if: github.event_name == 'issue_comment'
+        if: env.FINAL_CONTEXT_TYPE == 'pr'
         env:
           BASE_SHA: ${{ env.BASE_SHA }}
           HEAD_SHA: ${{ env.HEAD_SHA }}
         run: |
-          echo "::group::Fetch PR Diff"
-          PR_DIFF="<!-- Diff generation failed or skipped -->"
+          echo "::group::Fetch PR Diff (like probe-base)"
+          PR_DIFF="<!-- Diff generation failed or skipped -->"; RAW_DIFF_CONTENT=""
           if [[ -z "$BASE_SHA" || -z "$HEAD_SHA" || "$BASE_SHA" == "null" || "$HEAD_SHA" == "null" ]]; then
             echo "::warning::Cannot run git diff without valid base/head SHAs (Base: '$BASE_SHA', Head: '$HEAD_SHA')."
+            RAW_DIFF_CONTENT="FETCH_FAILED"
           else
             echo "Fetching diff between $BASE_SHA...$HEAD_SHA"
-            # Fetching the diff without complex filtering for now
+            # Fetching the diff (like probe-base)
             set +e
-            RAW_DIFF=$(git diff "${BASE_SHA}...${HEAD_SHA}")
-            DIFF_EXIT_CODE=$?
+            # Use patterns like probe-base if needed, simplified here
+            git diff "${BASE_SHA}...${HEAD_SHA}" > raw_diff_output.txt 2> git_diff_stderr.log; GIT_DIFF_EXIT_CODE=$?; 
             set -e
-            if [[ $DIFF_EXIT_CODE -ne 0 ]]; then
-              echo "::warning::git diff command failed with exit code $DIFF_EXIT_CODE."
-              PR_DIFF="<!-- Error running git diff -->"
-            elif [[ -z "$RAW_DIFF" ]]; then
-              PR_DIFF="<!-- No changes detected in diff -->"
-            else
-              # Simple XML escaping for CDATA
-              PR_DIFF=$(echo "$RAW_DIFF" | sed 's/]]>/]]\\&gt;/g')
-            fi
+            RAW_DIFF_CONTENT=$(cat raw_diff_output.txt)
+            if [[ $GIT_DIFF_EXIT_CODE -ne 0 ]]; then echo "::warning::git diff exited with code $GIT_DIFF_EXIT_CODE."; if [[ -s git_diff_stderr.log ]]; then cat git_diff_stderr.log; fi; fi
+            if [[ -z "$RAW_DIFF_CONTENT" && ( $GIT_DIFF_EXIT_CODE -eq 0 || $GIT_DIFF_EXIT_CODE -eq 1 ) ]]; then PR_DIFF="<!-- No relevant file changes found -->"; elif [[ -z "$RAW_DIFF_CONTENT" ]]; then RAW_DIFF_CONTENT="FETCH_FAILED"; fi
           fi
-          echo "PR_DIFF<<EOF_PR_DIFF" >> $GITHUB_ENV; echo "$PR_DIFF" >> $GITHUB_ENV; echo "EOF_PR_DIFF" >> $GITHUB_ENV
-          echo "Fetched diff (approx size: ${#PR_DIFF} bytes)."
+
+          # Apply filtering exactly like probe-base
+          if [[ "$RAW_DIFF_CONTENT" != "FETCH_FAILED" && -n "$RAW_DIFF_CONTENT" ]]; then
+              set +e; FILTERED_PR_DIFF_CONTENT=$(echo "$RAW_DIFF_CONTENT" | perl -ne 'BEGIN{$c="";$p=1;$l=500}if(/^diff --git a\/(.+?)\s+b\/(.+?)$/){print $c if $c ne ""&&$p;$c=$_;$p=1;$b=$2;if($b eq "/dev/null"||$b=~m/\.(lock|sum|mod|toml|cfg|ini|properties|yaml|yml|json|md|rst|adoc|txt|conf)$/i||$b=~m/(Makefile|Dockerfile|LICENSE|README)/i||$b=~m/\.(gitignore|dockerignore|.*rc)$/){$p=1}elsif(!-e $b){$p=1}else{if(open $fh,"<",$b){$r=0;while(<$fh>){$r++;chomp;if(length($_)>$l&&$_!~m{(https?://\S+|/\S+|[a-zA-Z0-9+/=]{20,}|d="M[\d\.,\sA-Za-z-]+}){$p=0;last}last if $r>=3}close $fh}else{$p=1}}}else{$c.=$_}END{print $c if $c ne ""&&$p}' 2> filter_stderr.log); PERL_PIPE_STATUS=${PIPESTATUS[1]}; set -e
+              if [[ $PERL_PIPE_STATUS -ne 0 ]]; then echo "::warning::Perl filter exited: $PERL_PIPE_STATUS."; fi; if [[ -s filter_stderr.log ]]; then cat filter_stderr.log; fi
+              if [[ -z "$FILTERED_PR_DIFF_CONTENT" && -n "$RAW_DIFF_CONTENT" ]]; then PR_DIFF="<!-- Diff filtered out -->"; elif [[ -n "$FILTERED_PR_DIFF_CONTENT" ]]; then PR_DIFF="$FILTERED_PR_DIFF_CONTENT"; fi
+          elif [[ "$RAW_DIFF_CONTENT" == "FETCH_FAILED" ]]; then PR_DIFF="<!-- Error fetching diff -->"; fi
+
+          # Simple XML escaping for CDATA (probe-base uses this structure)
+          FILTERED_PR_DIFF_ESCAPED=$(echo "$PR_DIFF" | sed 's/]]>/]]\\&gt;/g')
+
+          echo "PR_DIFF<<EOF_PR_DIFF" >> $GITHUB_ENV; echo "$FILTERED_PR_DIFF_ESCAPED" >> $GITHUB_ENV; echo "EOF_PR_DIFF" >> $GITHUB_ENV
+          echo "Fetched and filtered diff (approx size: ${#FILTERED_PR_DIFF_ESCAPED} bytes)."
           echo "::endgroup::"
 
       - name: Set up Python
@@ -275,81 +301,74 @@ jobs:
       - name: Determine Prompt for Aider
         id: determine_prompt
         shell: bash
+        env: # Add all necessary env vars from previous steps in aider.yaml
+          FINAL_CONTEXT_TYPE: ${{ env.FINAL_CONTEXT_TYPE }}
+          ISSUE_OR_PR_NUMBER: ${{ env.ISSUE_OR_PR_NUMBER }}
+          USER_REQUEST_BODY: ${{ env.USER_REQUEST_BODY }}
+          STANDARD_COMMENTS_XML: ${{ env.STANDARD_COMMENTS_XML }}
+          REVIEW_COMMENTS_XML: ${{ env.REVIEW_COMMENTS_XML }}
+          PR_TITLE: ${{ env.PR_TITLE }}
+          PR_BODY: ${{ env.PR_BODY }}
+          PR_DIFF: ${{ env.PR_DIFF }}
+          ISSUE_TITLE: ${{ env.ISSUE_TITLE }}
+          ISSUE_BODY: ${{ env.ISSUE_BODY }}
+          REQUEST_COMMENT_AUTHOR: ${{ env.REQUEST_COMMENT_AUTHOR }}
+          REQUEST_COMMENT_TIMESTAMP: ${{ env.REQUEST_COMMENT_TIMESTAMP }}
+          # No direct equivalent for these from probe-base, will rely on above for author/timestamp
+          # DIRECT_USER_REQUEST_ENV: ${{ inputs.direct_user_request }}
+          # MANUAL_INPUT_ENV: ${{ inputs.manual_input }}
+          # TRIGGERING_ACTOR_ENV: ${{ github.triggering_actor }}
+          # EVENT_NAME_ENV: ${{ github.event_name }}
+          # EVENT_COMMENT_USER_LOGIN_ENV: ${{ github.event.comment.user.login }}
+          # EVENT_COMMENT_CREATED_AT_ENV: ${{ github.event.comment.created_at }}
         run: |
-          PROMPT_FILE_PATH=".github/aider/issue-prompt.txt"
+          echo "::group::Assemble Final Prompt (mirroring probe-base.yml)"
+          set -e
+          CONTEXT_DETAILS_XML=""
+          DIFF_XML=""
+          PROMPT_INSTRUCTION_TEXT=""
+          PROMPT_FILE_PATH=".github/aider/aider-prompt-context.xml" # Changed filename for clarity
           mkdir -p .github/aider
-          LINKED_ISSUE_TITLE="${{ steps.get_linked_issue.outputs.linked_issue_title }}"
-          LINKED_ISSUE_BODY="${{ steps.get_linked_issue.outputs.linked_issue_body }}"
-          LINKED_ISSUE_NUMBER="${{ steps.get_linked_issue.outputs.linked_issue_number }}"
 
-          if [[ "${{ github.event_name }}" == "issues" ]]; then
-            echo "Event Type: Issues. Using existing external API logic."
-            ISSUE_TITLE_Q=$(printf '%q' "${{ github.event.issue.title }}")
-            ISSUE_BODY_Q=$(printf '%q' "${{ github.event.issue.body }}")
-            JSON_PAYLOAD=$(jq -n --arg title "$ISSUE_TITLE_Q" --arg body "$ISSUE_BODY_Q" '{"body":{"issue_title":$title,"issue_body":$body}}')
-            API_RESULT=$(curl -s -w "\\n%{http_code}" \
-              -X POST "https://app.windmill.dev/api/r/test1245/issue-trigger" \
-              -H "Content-Type: application/json" --data-binary "$JSON_PAYLOAD" --max-time 90)
-            HTTP_CODE=$(echo "$API_RESULT" | tail -n1); BODY=$(echo "$API_RESULT" | sed '$d'); echo "$BODY" > /tmp/api_response.txt
-            if [[ "$HTTP_CODE" -eq 200 ]]; then PROMPT=$(jq -r '.processed_prompt // .effective_body // .message // empty' /tmp/api_response.txt); if [[ -z "$PROMPT" || "$PROMPT" == "null" ]]; then echo "::warning::API returned 200 but no prompt; falling back."; printf "Please fix the issue described below:\n\nTitle: %s\n\nBody:\n%s" "${{ github.event.issue.title }}" "${{ github.event.issue.body }}" > "$PROMPT_FILE_PATH"; else echo "$PROMPT" > "$PROMPT_FILE_PATH"; fi;
-            else echo "::warning::API call failed (HTTP $HTTP_CODE). Falling back."; printf "Please fix the issue described below:\n\nTitle: %s\n\nBody:\n%s" "${{ github.event.issue.title }}" "${{ github.event.issue.body }}" > "$PROMPT_FILE_PATH"; fi
-            rm -f /tmp/api_response.txt
-
-          elif [[ "${{ github.event_name }}" == "issue_comment" ]]; then
-            echo "Event Type: Issue Comment on PR #${{ github.event.issue.number }}. Assembling detailed prompt."
-
-            # Fetch context from environment variables set by previous steps
-            PR_NUMBER="${{ github.event.issue.number }}"
-            PR_TITLE="${{ env.PR_TITLE }}"
-            PR_BODY="${{ env.PR_BODY }}"
-            STANDARD_COMMENTS_XML="${{ env.STANDARD_COMMENTS_XML }}"
-            REVIEW_COMMENTS_XML="${{ env.REVIEW_COMMENTS_XML }}"
-            PR_DIFF="${{ env.PR_DIFF }}"
-            COMMENT_AUTHOR="${{ github.event.comment.user.login }}"
-            COMMENT_TIMESTAMP="${{ github.event.comment.created_at }}"
-
-            # Extract user's request from the triggering comment
-            RAW_COMMENT_BODY="${{ github.event.comment.body }}"
-            USER_COMMENT_REQUEST="${RAW_COMMENT_BODY#*/aider}"
-            USER_COMMENT_REQUEST="${USER_COMMENT_REQUEST#"${USER_COMMENT_REQUEST%%[![:space:]]*}"}" # Trim leading whitespace
-            USER_COMMENT_REQUEST="${USER_COMMENT_REQUEST%"${USER_COMMENT_REQUEST##*[![:space:]]}"}" # Trim trailing whitespace
-
-            if [[ -z "$USER_COMMENT_REQUEST" ]]; then
-              echo "::error::Comment with /aider provided, but no instruction found after it."
-              printf "Error: /aider command found but no instruction followed." > "$PROMPT_FILE_PATH"
-              exit 1
-            fi
-
-            # Escape user request for CDATA
-            USER_COMMENT_REQUEST_ESCAPED=$(printf "%s" "$USER_COMMENT_REQUEST" | sed 's/]]>/]]\\&gt;/g') # Use printf for safe input to sed
-
-            # Assemble the final prompt string
-            FORMATTED_PROMPT="<github_context type=\"pr\" number=\"$PR_NUMBER\">"
-            FORMATTED_PROMPT="${FORMATTED_PROMPT}<details><title><![CDATA[${PR_TITLE}]]></title><body><![CDATA[${PR_BODY}]]></body></details>"
-            FORMATTED_PROMPT="${FORMATTED_PROMPT}<diff><![CDATA[${PR_DIFF}]]></diff>"
-            FORMATTED_PROMPT="${FORMATTED_PROMPT}<comments>${STANDARD_COMMENTS_XML}${REVIEW_COMMENTS_XML}</comments>"
-
-            # Add linked issue context if available
-            if [[ -n "$LINKED_ISSUE_NUMBER" ]]; then
-              LINKED_TITLE_ESCAPED=$(echo "$LINKED_ISSUE_TITLE" | sed 's/]]>/]]\\&gt;/g')
-              LINKED_BODY_ESCAPED=$(echo "$LINKED_ISSUE_BODY" | sed 's/]]>/]]\\&gt;/g')
-              FORMATTED_PROMPT="${FORMATTED_PROMPT}<linked_issue number=\"${LINKED_ISSUE_NUMBER}\"><title><![CDATA[${LINKED_TITLE_ESCAPED}]]></title><body><![CDATA[${LINKED_BODY_ESCAPED}]]></body></linked_issue>"
-            fi
-
-            FORMATTED_PROMPT="${FORMATTED_PROMPT}<user_request author=\"${COMMENT_AUTHOR}\" timestamp=\"${COMMENT_TIMESTAMP}\"><![CDATA[${USER_COMMENT_REQUEST_ESCAPED}]]></user_request>"
-            FORMATTED_PROMPT="${FORMATTED_PROMPT}</github_context>"
-            FORMATTED_PROMPT="${FORMATTED_PROMPT}<instructions><![CDATA[You are Aider, an AI Pair Programmer. You are reviewing a Pull Request. The user has provided a request in the <user_request> tag. Use the full context provided (PR details, diff, comments, linked issue) to understand the PR and the request. Apply the requested changes to the specified files.]]></instructions>"
-
-            # echo "$FORMATTED_PROMPT" > "$PROMPT_FILE_PATH" # Unsafe expansion
-            printf "%s" "$FORMATTED_PROMPT" > "$PROMPT_FILE_PATH" # Use printf for safe writing
-            echo "Detailed prompt assembled and written to $PROMPT_FILE_PATH (Size: ${#FORMATTED_PROMPT} bytes)"
-
-          else
-            echo "::error::Unhandled event type: ${{ github.event_name }}"
-            exit 1
+          # Combine standard and review comments for PRs, similar to probe-base logic
+          COMBINED_COMMENTS_XML="${STANDARD_COMMENTS_XML}"
+          if [[ "$FINAL_CONTEXT_TYPE" == "pr" && -n "$REVIEW_COMMENTS_XML" ]]; then
+            COMBINED_COMMENTS_XML="${STANDARD_COMMENTS_XML}${REVIEW_COMMENTS_XML}"
           fi
-          # Ensure output is set regardless of path
-          echo "PROMPT_FILE_PATH=$PROMPT_FILE_PATH" >> $GITHUB_OUTPUT
+
+          if [[ "$FINAL_CONTEXT_TYPE" == "pr" ]]; then
+              CONTEXT_DETAILS_XML="<details><title><![CDATA[$PR_TITLE]]></title><body><![CDATA[$PR_BODY]]></body></details>"
+              # PR_DIFF from env already contains the fully processed (filtered and escaped) diff
+              DIFF_XML="<diff><![CDATA[$PR_DIFF]]></diff>"
+              PROMPT_INSTRUCTION_TEXT="You are Aider, an AI Pair Programmer. You are working on a GitHub Pull Request. Use the PR details, diff, and comments to understand the context. The user has provided a specific request in the <user_request> tag. Apply the requested changes to the specified files."
+          elif [[ "$FINAL_CONTEXT_TYPE" == "issue" ]]; then
+              CONTEXT_DETAILS_XML="<details><title><![CDATA[$ISSUE_TITLE]]></title><body><![CDATA[$ISSUE_BODY]]></body></details>"
+              DIFF_XML="" # No diff for issues
+              PROMPT_INSTRUCTION_TEXT="You are Aider, an AI Pair Programmer. You are working on a GitHub Issue. Use the issue details and comments to understand the context. The user (who triggered this workflow) has implicitly requested to fix this issue (details in <user_request>). Apply the necessary changes to the specified files."
+          fi
+
+          # USER_REQUEST_BODY, REQUEST_COMMENT_AUTHOR, REQUEST_COMMENT_TIMESTAMP are from initialize_context step
+          # Escape USER_REQUEST_BODY for CDATA, it's raw from initialize_context
+          USER_REQUEST_BODY_ESCAPED=$(printf "%s" "$USER_REQUEST_BODY" | sed 's/]]>/]]\\&gt;/g')
+
+          FORMATTED_PROMPT="<github_context type=\"$FINAL_CONTEXT_TYPE\" number=\"$ISSUE_OR_PR_NUMBER\">
+            ${CONTEXT_DETAILS_XML}
+            ${DIFF_XML}
+            <comments>${COMBINED_COMMENTS_XML}</comments>
+            <user_request author=\"${REQUEST_COMMENT_AUTHOR}\" timestamp=\"${REQUEST_COMMENT_TIMESTAMP}\"><![CDATA[${USER_REQUEST_BODY_ESCAPED}]]></user_request>
+            </github_context>
+            <instructions><![CDATA[${PROMPT_INSTRUCTION_TEXT}]]></instructions>"
+
+          if [ ${#FORMATTED_PROMPT} -lt 200 ]; then
+            echo "::warning::Formatted prompt seems very short (${#FORMATTED_PROMPT} bytes)."
+          fi
+          echo "Final prompt assembled. Length: ${#FORMATTED_PROMPT} bytes."
+
+          printf "%s" "$FORMATTED_PROMPT" > "$PROMPT_FILE_PATH"
+          echo "Prompt written to $PROMPT_FILE_PATH"
+
+          echo "PROMPT_FILE_PATH=$PROMPT_FILE_PATH" >> "$GITHUB_OUTPUT"
+          echo "::endgroup::"
 
       - name: Probe Chat for Relevant Files
         id: probe_files
