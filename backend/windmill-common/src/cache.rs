@@ -603,6 +603,20 @@ pub mod script {
         .map_err(Into::into)
         .and_then(unwrap_or_error(&loc, "Script", hash))
         .and_then(|r| {
+            let schema_validator = if r.schema_validation {
+                r.schema
+                    .as_ref()
+                    .map(|schema_str| {
+                        SchemaValidator::from_schema(schema_str).map_err(|e| {
+                            anyhow!(
+                                "Couldn't create schema validator for script {hash} requiring schema validation: {e}"
+                            )
+                        })
+                    })
+                    .transpose()?
+            } else {
+                None
+            };
             Ok(RawScript {
                 content: r.content,
                 lock: r.lock,
@@ -619,16 +633,7 @@ pub mod script {
                     } else {
                         None
                     },
-                    schema_validator: if r.schema_validation {
-                        r.schema
-                            .as_ref()
-                            .map(|schema_str| {
-                                SchemaValidator::from_schema(schema_str).map_err(|e| anyhow!("Couldn't create schema validator for script requiring schema validation: {e}"))
-                            })
-                            .transpose()?
-                    } else {
-                        None
-                    },
+                    schema_validator,
                     schema: r.schema,
                 }),
             })

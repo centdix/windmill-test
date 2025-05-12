@@ -2551,6 +2551,7 @@ async fn handle_code_execution_job(
         ),
     };
 
+    // Validate schema before proceeding with any code execution logic
     try_validate_schema(
         job,
         conn,
