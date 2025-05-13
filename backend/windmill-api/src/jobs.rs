@@ -5703,9 +5703,8 @@ pub async fn run_job_by_hash(
     Query(run_query): Query<RunJobQuery>,
     args: WebhookArgs,
 ) -> error::Result<(StatusCode, String)> {
-    let args_map = args.to_push_args_owned(&authed, &db, &w_id).await?;
+    let args = args.to_push_args_owned(&authed, &db, &w_id).await?;
 
-    // Fetch script details for validation
     let script_for_validation = sqlx::query!(
         "SELECT content, language as \"language: ScriptLang\", schema as \"schema_json: _\" FROM script WHERE hash = $1 AND workspace_id = $2",
         script_hash.0, &w_id
