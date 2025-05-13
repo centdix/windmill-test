@@ -116,6 +116,7 @@ object_store = { workspace = true, optional = true}
 openidconnect = { workspace = true, optional = true}
 url = { workspace = true, optional = true}
 jsonwebtoken = { workspace = true }
+jsonschema = "0.17"
 matchit = { workspace = true, optional = true }
 tokio-tungstenite = { workspace = true, optional = true}
 rdkafka = { workspace = true, optional = true }

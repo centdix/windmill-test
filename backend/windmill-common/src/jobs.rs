@@ -396,11 +396,13 @@ pub async fn script_path_to_payload<'e, E: sqlx::Executor<'e, Database = Postgre
     Option<bool>,
     Option<i32>,
     Option<OnBehalfOf>,
+    Option<crate::scripts::Schema>,
 )> {
-    let (job_payload, tag, delete_after_use, script_timeout, on_behalf_of) =
+    let (job_payload, tag, delete_after_use, script_timeout, on_behalf_of, schema) =
         if script_path.starts_with("hub/") {
             (
                 JobPayload::ScriptHub { path: script_path.to_owned() },
+                None,
                 None,
                 None,
                 None,
@@ -422,6 +424,7 @@ pub async fn script_path_to_payload<'e, E: sqlx::Executor<'e, Database = Postgre
                 has_preprocessor,
                 on_behalf_of_email,
                 created_by,
+                schema,
             ) = get_latest_deployed_hash_for_path(db, w_id, script_path).await?;
 
             let on_behalf_of = if let Some(email) = on_behalf_of_email {
@@ -451,6 +454,7 @@ pub async fn script_path_to_payload<'e, E: sqlx::Executor<'e, Database = Postgre
                 delete_after_use,
                 script_timeout,
                 on_behalf_of,
+                schema,
             )
         };
     Ok((
@@ -459,6 +463,7 @@ pub async fn script_path_to_payload<'e, E: sqlx::Executor<'e, Database = Postgre
         delete_after_use,
         script_timeout,
         on_behalf_of,
+        schema,
     ))
 }
 

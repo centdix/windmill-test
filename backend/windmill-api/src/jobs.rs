@@ -564,9 +564,10 @@ pub async fn get_path_tag_limits_cache_for_hash(
     Option<bool>,
     Option<String>,
     String,
+    Option<windmill_common::scripts::Schema>,
 )> {
     let script = sqlx::query!(
-        "select path, tag, concurrency_key, concurrent_limit, concurrency_time_window_s, cache_ttl, language as \"language: ScriptLang\", dedicated_worker, priority, delete_after_use, timeout, has_preprocessor, on_behalf_of_email, created_by from script where hash = $1 AND workspace_id = $2",
+        "select path, tag, concurrency_key, concurrent_limit, concurrency_time_window_s, cache_ttl, language as \"language: ScriptLang\", dedicated_worker, priority, delete_after_use, timeout, has_preprocessor, on_behalf_of_email, created_by, schema as \"schema: windmill_common::scripts::Schema\" from script where hash = $1 AND workspace_id = $2",
         hash,
         w_id
     )
@@ -594,6 +595,7 @@ pub async fn get_path_tag_limits_cache_for_hash(
         script.has_preprocessor,
         script.on_behalf_of_email,
         script.created_by,
+        script.schema,
     ))
 }
 
@@ -3112,6 +3114,7 @@ struct Preview {
     tag: Option<String>,
     dedicated_worker: Option<bool>,
     lock: Option<String>,
+    schema: Option<windmill_common::scripts::Schema>,
 }
 
 #[derive(Deserialize)]
@@ -3616,6 +3619,74 @@ pub async fn run_flow_by_path_inner(
     Ok((StatusCode::CREATED, uuid.to_string()))
 }
 
+// Helper to convert args from HashMap<String, Box<RawValue>> to serde_json::Value
+fn args_to_json_value(args: &HashMap<String, Box<RawValue>>) -> Result<serde_json::Value, Error> {
+    let mut map = serde_json::Map::new();
+    for (k, v_raw) in args {
+        let value: serde_json::Value = serde_json::from_str(v_raw.get())
+            .map_err(|e| Error::BadRequest(format!("Failed to parse argument '{}': {}", k, e)))?;
+        map.insert(k.clone(), value);
+    }
+    Ok(serde_json::Value::Object(map))
+}
+
+// Argument validation function
+fn validate_script_args(
+    schema_opt: &Option<windmill_common::scripts::Schema>,
+    args: &HashMap<String, Box<RawValue>>,
+    script_identifier: &str, // Path or hash for error messages
+) -> Result<(), Error> {
+    if let Some(schema_container) = schema_opt {
+        let schema_json_str = schema_container.0.get();
+        let schema_val: serde_json::Value = serde_json::from_str(schema_json_str)
+            .map_err(|e| Error::InternalServerError(format!("Failed to parse schema for {}: {}", script_identifier, e)))?;
+
+        if schema_val.is_null() || (schema_val.as_object().map_or(false, |o| o.is_empty())) {
+            // Schema is present but effectively empty (e.g., {} or null), skip validation.
+            return Ok(());
+        }
+
+        if !schema_val.is_object() {
+            return Err(Error::InternalServerError(format!("Schema for {} is not a JSON object.", script_identifier)));
+        }
+        
+        // Allow additional properties by default if not specified in schema, as this is common behavior.
+        // If strict validation (no extra args) is needed, schema should set `additionalProperties: false`.
+        // jsonschema crate defaults to `additionalProperties: true` if not specified.
+
+        let compiled_schema = jsonschema::JSONSchema::compile(&schema_val)
+            .map_err(|e| Error::InternalServerError(format!("Failed to compile schema for {}: {}", script_identifier, e)))?;
+
+        let args_val = args_to_json_value(args)?;
+
+        match compiled_schema.validate(&args_val) {
+            Ok(_) => Ok(()),
+            Err(validation_errors) => {
+                let errors_str = validation_errors
+                    .into_iter()
+                    .map(|e| {
+                        let instance_str = match e.instance {
+                            Some(cow_val) => cow_val.to_string(),
+                            None => "N/A".to_string(),
+                        };
+                        format!("Argument path '{}': {}. Instance: {}", e.instance_path, e.kind, instance_str)
+                    })
+                    .collect::<Vec<String>>()
+                    .join("; ");
+                Err(Error::BadRequest(format!(
+                    "Argument validation failed for {}: {}",
+                    script_identifier, errors_str
+                )))
+            }
+        }
+    } else {
+        // No schema available for validation.
+        // If arguments are provided but no schema, it's a potential issue,
+        // but current fix focuses on when schema IS available.
+        Ok(())
+    }
+}
+
 #[cfg(not(feature = "enterprise"))]
 pub async fn restart_flow(
     _authed: ApiAuthed,
@@ -3748,10 +3819,13 @@ pub async fn run_script_by_path_inner(
 
     check_scopes(&authed, || format!("run:script/{script_path}"))?;
 
-    let mut tx = user_db.clone().begin(&authed).await?;
-    let (job_payload, tag, _delete_after_use, timeout, on_behalf_of) =
-        script_path_to_payload(script_path, &mut *tx, &w_id, run_query.skip_preprocessor).await?;
-    drop(tx);
+    let mut tx_for_schema = user_db.clone().begin(&authed).await?;
+    let (job_payload, tag, _delete_after_use, timeout, on_behalf_of, schema) =
+        windmill_common::jobs::script_path_to_payload(&script_path, &mut *tx_for_schema, &w_id, run_query.skip_preprocessor).await?;
+    drop(tx_for_schema);
+
+    validate_script_args(&schema, &args.args, &script_path)?;
+
     let scheduled_for = run_query.get_scheduled_for(&db).await?;
 
     let tag = run_query.tag.clone().or(tag);
@@ -4845,6 +4919,35 @@ async fn run_preview_script(
     let scheduled_for = run_query.get_scheduled_for(&db).await?;
     let tag = run_query.tag.clone().or(preview.tag.clone());
     check_tag_available_for_workspace(&w_id, &tag, &authed).await?;
+
+    // Determine schema for validation
+    let schema_opt = if let Some(s) = preview.schema {
+        Some(s)
+    } else if let Some(hash_str) = &preview.script_hash {
+        if let Ok(script_hash_val) = windmill_common::scripts::to_i64(hash_str) {
+            // Fetch schema using get_path_tag_limits_cache_for_hash
+            let mut tx_schema = user_db.clone().begin(&authed).await?;
+            let res = get_path_tag_limits_cache_for_hash(&mut tx_schema, &w_id, script_hash_val).await;
+            drop(tx_schema);
+            res.ok().and_then(|(_, _, _, _, _, _, _, _, _, _, _, _, _, _, schema)| schema)
+        } else {
+            None
+        }
+    } else if let Some(p_path) = &preview.path {
+         // Fetch schema using script_path_to_payload
+         let mut tx_schema = user_db.clone().begin(&authed).await?;
+         let res = windmill_common::jobs::script_path_to_payload(p_path, &mut tx_schema, &w_id, None).await;
+         drop(tx_schema);
+         res.ok().and_then(|(_, _, _, _, _, schema)| schema)
+    } else {
+        None
+    };
+
+    let script_identifier = preview.path.as_deref()
+        .or(preview.script_hash.as_deref())
+        .unwrap_or("new script preview");
+    validate_script_args(&schema_opt, &preview.args.clone().unwrap_or_default(), script_identifier)?;
+
     let tx = PushIsolationLevel::Isolated(user_db.clone(), authed.clone().into());
 
     let (uuid, tx) = push(
@@ -5607,8 +5710,12 @@ pub async fn run_job_by_hash_inner(
         has_preprocessor,
         on_behalf_of_email,
         created_by,
+        schema,
     ) = get_path_tag_limits_cache_for_hash(user_db.clone().begin(&authed).await?, &w_id, hash)
         .await?;
+
+    validate_script_args(&schema, &args.args, &ScriptHash(hash).to_string())?;
+
     check_scopes(&authed, || format!("run:script/{path}"))?;
     if let Some(run_query_cache_ttl) = run_query.cache_ttl {
         cache_ttl = Some(run_query_cache_ttl);
