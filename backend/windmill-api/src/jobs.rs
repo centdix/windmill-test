@@ -4605,7 +4605,6 @@ pub async fn run_wait_result_script_by_path(
 
     let args_map = args.to_push_args_owned(&authed, &db, &w_id).await?;
 
-    // Fetch script details for validation
     let script_for_validation = sqlx::query!(
         "SELECT content, language as \"language: ScriptLang\", schema as \"schema_json: _\" FROM script WHERE path = $1 AND workspace_id = $2 AND archived = false ORDER BY created_at DESC LIMIT 1",
         script_path.path_str(), &w_id
