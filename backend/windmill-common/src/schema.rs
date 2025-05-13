@@ -356,6 +356,19 @@ pub fn should_validate_schema(code: &str, lang: &ScriptLang) -> bool {
     find_annotation(comment, annotation, code)
 }
 
+pub fn is_schema_validation_disabled(code: &str, lang: &ScriptLang) -> bool {
+    let annotation = "no_schema_validation";
+    use ScriptLang::*;
+    let comment = match lang {
+        Nativets | Bun | Bunnative | Deno | Php | CSharp | Java => "//",
+        Python3 | Go | Bash | Powershell | Graphql | Ansible | Nu => "#",
+        Postgresql | Mysql | Bigquery | Snowflake | Mssql | OracleDB => "--",
+        Rust => "//!",
+        // for related places search: ADD_NEW_LANG
+    };
+    find_annotation(comment, annotation, code)
+}
+
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct SchemaValidator {
     pub required: Vec<String>,
@@ -472,7 +485,7 @@ mod tests {
                 let mut result = HashMap::new();
                 for (key, val) in map {
                     let raw = serde_json::to_string(&val)?; // Serialize the Value to a string
-                    let raw_value: Box<RawValue> = serde_json::from_str(&raw)?; // Convert string to Box<RawValue>
+                    let raw_value = RawValue::from_string(raw)?; // Convert string to Box<RawValue>
                     result.insert(key, raw_value);
                 }
                 Ok(result)
