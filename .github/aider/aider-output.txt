@@ -1,14 +1,14 @@
 Warning: Input is not a terminal (fd=0).
 ────────────────────────────────────────────────────────────────────────────────
 You can skip this check with --no-gitignore
-Added .aider*, .env to .gitignore
+Added .env to .gitignore
 Error: Read-only file 
 /home/runner/work/windmill-test/windmill-test/.aider/conventions.md does not 
 exist. Skipping.
 Aider v0.83.1
 Main model: gemini/gemini-2.5-pro-preview-05-06 with diff-fenced edit format
 Weak model: gemini/gemini-2.5-flash-preview-04-17
-Git repo: .git with 4,709 files
+Git repo: .git with 4,710 files
 Warning: For large repos, consider using --subtree-only and .aiderignore
 See: https://aider.chat/docs/faq.html#can-i-use-aider-in-a-large-mono-repo
 Repo-map: using 4096 tokens, auto refresh
@@ -16,9 +16,94 @@ Repo-map: using 4096 tokens, auto refresh
 
 https://aider.chat/HISTORY.html#release-notes
 
-Initial repo scan can be slow in larger repos, but only happens once.
-Scanning repo:   0%|          | 0/4709 [00:00<?, ?it/s]Scanning repo:   7%|▋         | 334/4709 [00:00<00:01, 3331.50it/s]Scanning repo:  14%|█▍        | 668/4709 [00:00<00:01, 3307.40it/s]Scanning repo:  21%|██        | 999/4709 [00:00<00:01, 3290.12it/s]Scanning repo:  28%|██▊       | 1329/4709 [00:00<00:01, 3207.24it/s]Scanning repo:  35%|███▌      | 1661/4709 [00:00<00:00, 3245.64it/s]Scanning repo:  42%|████▏     | 1986/4709 [00:02<00:05, 523.97it/s] Scanning repo:  47%|████▋     | 2208/4709 [00:04<00:08, 284.16it/s]Scanning repo:  50%|█████     | 2361/4709 [00:04<00:08, 265.62it/s]Scanning repo:  52%|█████▏    | 2472/4709 [00:05<00:07, 286.28it/s]Scanning repo:  57%|█████▋    | 2672/4709 [00:05<00:05, 386.38it/s]Scanning repo:  59%|█████▉    | 2797/4709 [00:05<00:04, 430.02it/s]Scanning repo:  62%|██████▏   | 2906/4709 [00:05<00:04, 425.69it/s]Scanning repo:  64%|██████▎   | 2995/4709 [00:05<00:04, 400.01it/s]Scanning repo:  65%|██████▌   | 3070/4709 [00:05<00:03, 436.94it/s]Scanning repo:  67%|██████▋   | 3142/4709 [00:06<00:03, 451.03it/s]Scanning repo:  68%|██████▊   | 3208/4709 [00:06<00:03, 432.38it/s]Scanning repo:  72%|███████▏  | 3368/4709 [00:06<00:02, 622.65it/s]Scanning repo:  73%|███████▎  | 3455/4709 [00:06<00:02, 557.62it/s]Scanning repo:  75%|███████▍  | 3528/4709 [00:06<00:02, 574.51it/s]Scanning repo:  76%|███████▋  | 3599/4709 [00:07<00:03, 290.08it/s]Scanning repo:  78%|███████▊  | 3652/4709 [00:07<00:05, 205.29it/s]Scanning repo:  78%|███████▊  | 3692/4709 [00:08<00:06, 168.60it/s]Scanning repo:  79%|███████▉  | 3723/4709 [00:08<00:07, 133.12it/s]Scanning repo:  80%|███████▉  | 3762/4709 [00:08<00:06, 139.65it/s]Scanning repo:  80%|████████  | 3784/4709 [00:10<00:14, 64.54it/s] Scanning repo:  82%|████████▏ | 3850/4709 [00:10<00:08, 101.25it/s]Scanning repo:  82%|████████▏ | 3881/4709 [00:10<00:07, 115.70it/s]Scanning repo:  87%|████████▋ | 4102/4709 [00:10<00:01, 328.68it/s]Scanning repo:  94%|█████████▍| 4427/4709 [00:10<00:00, 699.24it/s]Scanning repo: 100%|█████████▉| 4707/4709 [00:10<00:00, 999.66it/s]Scanning repo: 100%|██████████| 4709/4709 [00:10<00:00, 434.22it/s]
-It seems like the review body and comments are missing. Could you please provide
-the review feedback so I can help you address the issues?                       
 
-Tokens: 14k sent, 63 received. Cost: $0.02 message, $0.02 session.
+backend/windmill-worker/src/worker.rs
+Initial repo scan can be slow in larger repos, but only happens once.
+Scanning repo:   0%|          | 0/4710 [00:00<?, ?it/s]Scanning repo:   7%|▋         | 323/4710 [00:00<00:01, 3223.49it/s]Scanning repo:  14%|█▍        | 651/4710 [00:00<00:01, 3255.26it/s]Scanning repo:  21%|██        | 977/4710 [00:00<00:01, 3165.59it/s]Scanning repo:  27%|██▋       | 1294/4710 [00:00<00:01, 3080.98it/s]Scanning repo:  34%|███▍      | 1613/4710 [00:00<00:00, 3117.92it/s]Scanning repo:  41%|████      | 1926/4710 [00:01<00:03, 805.37it/s] Scanning repo:  46%|████▌     | 2144/4710 [00:03<00:08, 294.39it/s]Scanning repo:  49%|████▊     | 2294/4710 [00:04<00:10, 235.32it/s]Scanning repo:  51%|█████     | 2400/4710 [00:04<00:08, 258.75it/s]Scanning repo:  53%|█████▎    | 2490/4710 [00:05<00:07, 287.67it/s]Scanning repo:  57%|█████▋    | 2680/4710 [00:05<00:05, 402.16it/s]Scanning repo:  59%|█████▉    | 2795/4710 [00:05<00:04, 441.67it/s]Scanning repo:  61%|██████▏   | 2896/4710 [00:05<00:04, 421.23it/s]Scanning repo:  63%|██████▎   | 2977/4710 [00:05<00:04, 397.78it/s]Scanning repo:  65%|██████▍   | 3044/4710 [00:06<00:04, 383.34it/s]Scanning repo:  66%|██████▌   | 3101/4710 [00:06<00:04, 378.98it/s]Scanning repo:  67%|██████▋   | 3166/4710 [00:06<00:03, 416.63it/s]Scanning repo:  68%|██████▊   | 3220/4710 [00:06<00:04, 314.93it/s]Scanning repo:  71%|███████   | 3330/4710 [00:06<00:03, 435.73it/s]Scanning repo:  72%|███████▏  | 3393/4710 [00:07<00:04, 302.69it/s]Scanning repo:  73%|███████▎  | 3444/4710 [00:07<00:03, 320.96it/s]Scanning repo:  74%|███████▍  | 3491/4710 [00:07<00:03, 340.15it/s]Scanning repo:  75%|███████▌  | 3539/4710 [00:07<00:04, 249.60it/s]Scanning repo:  76%|███████▌  | 3578/4710 [00:07<00:04, 266.00it/s]Scanning repo:  77%|███████▋  | 3614/4710 [00:08<00:07, 146.56it/s]Scanning repo:  77%|███████▋  | 3641/4710 [00:08<00:08, 128.87it/s]Scanning repo:  78%|███████▊  | 3663/4710 [00:09<00:08, 120.41it/s]Scanning repo:  78%|███████▊  | 3681/4710 [00:09<00:08, 116.35it/s]Scanning repo:  78%|███████▊  | 3697/4710 [00:09<00:08, 114.00it/s]Scanning repo:  79%|███████▉  | 3711/4710 [00:09<00:09, 109.04it/s]Scanning repo:  80%|███████▉  | 3763/4710 [00:09<00:06, 142.27it/s]Scanning repo:  80%|████████  | 3778/4710 [00:11<00:19, 48.28it/s] Scanning repo:  82%|████████▏ | 3849/4710 [00:11<00:08, 96.00it/s]Scanning repo:  82%|████████▏ | 3882/4710 [00:11<00:07, 114.82it/s]Scanning repo:  87%|████████▋ | 4101/4710 [00:11<00:01, 354.10it/s]Scanning repo:  94%|█████████▍| 4426/4710 [00:11<00:00, 763.43it/s]Scanning repo: 100%|█████████▉| 4708/4710 [00:11<00:00, 1083.54it/s]Scanning repo: 100%|██████████| 4710/4710 [00:11<00:00, 402.84it/s] 
+Okay, I will address the review comments.                                       
+
+The plan is to:                                                                 
+
+ 1 Remove the three commented lines within the sv_fut async block that describe 
+   the schema preference order.                                                 
+ 2 Modify the logic within sv_fut to first check should_validate_schema.        
+    • If validation is expected (i.e., should_validate_schema returns true):    
+       • Attempt to use the provided schema string.                             
+       • If not available, attempt to infer the schema using parse_sig_of_lang. 
+       • If neither is available, return an error indicating that schema        
+         validation was expected but could not be performed.                    
+    • If validation is not expected (i.e., should_validate_schema returns       
+      false), then return Ok(None).                                             
+
+Here is the SEARCH/REPLACE block:                                               
+
+                                                                                
+ backend/windmill-worker/src/worker.rs                                          
+ <<<<<<< SEARCH                                                                 
+             let sv_fut = async move {                                          
+                     // Order of preference for schema:                         
+                     // 1. Pre-parsed custom schema (handled by the outer `if l 
+ Some(sv) = schema_validator`)                                                  
+                     // 2. Schema string from metadata (e.g., .schema.json)     
+                     // 3. Inferred schema from script signature                
+                     if let Some(schema_str) = schema { // `schema` here is     
+ Option<&String> from function args                                             
+                         // If a schema string is provided (e.g. from a         
+ .schema.json file), use it                                                     
+                         Ok(Some(SchemaValidator::from_schema(schema_str)?))    
+                     } else {                                                   
+                         // Otherwise, try to infer from the script signature   
+                         if let Some(sig) = parse_sig_of_lang(                  
+                             code,                                              
+                             language,                                          
+                             job.script_entrypoint_override.clone(),            
+                         )? {                                                   
+                             Ok(Some(schema_validator_from_main_arg_sig(&sig))) 
+                         } else {                                               
+                             // Cannot infer, so no validation possible from    
+ signature                                                                      
+                             Ok(None)                                           
+                         }                                                      
+                     }                                                          
+             }                                                                  
+             .map_ok(Arc::new);                                                 
+ =======                                                                        
+             let sv_fut = async move {                                          
+                     if language.map(|l| should_validate_schema(code,           
+ l)).unwrap_or(false) {                                                         
+                         // Schema validation is expected for this language/cod 
+                         if let Some(schema_str) = schema {                     
+                             // If a schema string is provided (e.g. from a     
+ .schema.json file), use it                                                     
+                             Ok(Some(SchemaValidator::from_schema(schema_str)?) 
+                         } else {                                               
+                             // Otherwise, try to infer from the script signatu 
+                             if let Some(sig) = parse_sig_of_lang(              
+                                 code,                                          
+                                 language,                                      
+                                 job.script_entrypoint_override.clone(),        
+                             )? {                                               
+                                 Ok(Some(schema_validator_from_main_arg_sig(&si 
+ ))                                                                             
+                             } else {                                           
+                                 // Validation was expected, but no schema      
+ provided and couldn't infer.                                                   
+                                 Err(anyhow!("Job was expected to validate the  
+ arguments schema, but no schema was provided and couldn't be inferred from the 
+ script for language `{language:?}`. Try removing schema validation for this    
+ job").into())                                                                  
+                             }                                                  
+                         }                                                      
+                     } else {                                                   
+                         // Schema validation is not expected for this          
+ language/code.                                                                 
+                         Ok(None)                                               
+                     }                                                          
+             }                                                                  
+             .map_ok(Arc::new);                                                 
+ >>>>>>> REPLACE                                                                
+                                                                                
+
+Tokens: 38k sent, 2.4k received. Cost: $0.07 message, $0.07 session.
+Applied edit to backend/windmill-worker/src/worker.rs
+Commit ee29672 fix: Adjust schema validation based on expected validation
