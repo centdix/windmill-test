@@ -369,7 +369,7 @@
 				}
 			}}
 		/>
-		{#if type === 'string'}
+		{#if type === 'string' || type === 'array'}
 			<Toggle
 				options={{
 					right: 'Nullable',
@@ -380,9 +380,9 @@
 				checked={nullable}
 				on:change={(event) => {
 					if (event?.detail) {
-						nullable = true
+						nullable = type === 'array' ? null : true
 					} else {
-						nullable = undefined
+						nullable = type === 'array' ? null : undefined
 					}
 				}}
 				disabled={required}
