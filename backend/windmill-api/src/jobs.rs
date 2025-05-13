@@ -91,8 +91,6 @@ use windmill_queue::{
     cancel_job, get_result_and_success_by_id_from_flow, job_is_complete, push, PushArgs,
     PushArgsOwned, PushIsolationLevel,
 };
-use windmill_common::schema::{schema_validator_from_main_arg_sig, SchemaValidator};
-use windmill_parser::MainArgSignature;
 
 
 #[cfg(feature = "prometheus")]
@@ -3800,27 +3798,7 @@ pub async fn run_script_by_path(
     Query(run_query): Query<RunJobQuery>,
     args: WebhookArgs,
 ) -> error::Result<(StatusCode, String)> {
-    let args_map = args.to_push_args_owned(&authed, &db, &w_id).await?;
-
-    // Fetch script details for validation
-    let script_for_validation = sqlx::query!(
-        "SELECT content, language as \"language: ScriptLang\", schema as \"schema_json: _\" FROM script WHERE path = $1 AND workspace_id = $2 AND archived = false ORDER BY created_at DESC LIMIT 1",
-        script_path.path_str(), &w_id
-    )
-    .fetch_optional(&db)
-    .await?
-    .ok_or_else(|| Error::NotFound(format!("Script not found at path {} in workspace {}", script_path.path_str(), w_id)))?;
-
-    validate_script_args(
-        &db,
-        &w_id,
-        script_path.path_str(),
-        &script_for_validation.content,
-        &script_for_validation.language,
-        script_for_validation.schema_json.as_ref().map(|s| s.get()),
-        None, // TODO: Determine entrypoint override if necessary from script_path_to_payload logic
-        &args_map.args,
-    ).await?;
+    let args = args.to_push_args_owned(&authed, &db, &w_id).await?;
 
     run_script_by_path_inner(
         authed,
