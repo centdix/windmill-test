@@ -217,7 +217,14 @@ export async function inferArgs(
 
 		argSigToJsonSchemaType(arg.typ, schema.properties[arg.name])
 
-		schema.properties[arg.name].default = arg.default
+		if (arg.has_default) {
+			schema.properties[arg.name].default = arg.default
+		} else {
+			// If arg does not have a default, ensure 'default' keyword is not in its schema.
+			// This is important because arg.default might be null (from parser for non-defaulted args),
+			// and we don't want to set 'default: null' for a required field that has no actual default.
+			delete schema.properties[arg.name].default
+		}
 
 		if (!arg.has_default && !schema.required.includes(arg.name)) {
 			schema.required.push(arg.name)
