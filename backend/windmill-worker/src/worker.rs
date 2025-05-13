@@ -2346,25 +2346,27 @@ async fn try_validate_schema(
             let validators_cache = cache::anon!({ (u8, ScriptHash) => Arc<Option<SchemaValidator>> } in "schemavalidators" <= 1000);
 
             let sv_fut = async move {
-                    // Order of preference for schema:
-                    // 1. Pre-parsed custom schema (handled by the outer `if let Some(sv) = schema_validator`)
-                    // 2. Schema string from metadata (e.g., .schema.json)
-                    // 3. Inferred schema from script signature
-                    if let Some(schema_str) = schema { // `schema` here is Option<&String> from function args
-                        // If a schema string is provided (e.g. from a .schema.json file), use it
-                        Ok(Some(SchemaValidator::from_schema(schema_str)?))
-                    } else {
-                        // Otherwise, try to infer from the script signature
-                        if let Some(sig) = parse_sig_of_lang(
-                            code,
-                            language,
-                            job.script_entrypoint_override.clone(),
-                        )? {
-                            Ok(Some(schema_validator_from_main_arg_sig(&sig)))
+                    if language.map(|l| should_validate_schema(code, l)).unwrap_or(false) {
+                        // Schema validation is expected for this language/code.
+                        if let Some(schema_str) = schema {
+                            // If a schema string is provided (e.g. from a .schema.json file), use it
+                            Ok(Some(SchemaValidator::from_schema(schema_str)?))
                         } else {
-                            // Cannot infer, so no validation possible from signature
-                            Ok(None)
+                            // Otherwise, try to infer from the script signature
+                            if let Some(sig) = parse_sig_of_lang(
+                                code,
+                                language,
+                                job.script_entrypoint_override.clone(),
+                            )? {
+                                Ok(Some(schema_validator_from_main_arg_sig(&sig)))
+                            } else {
+                                // Validation was expected, but no schema provided and couldn't infer.
+                                Err(anyhow!("Job was expected to validate the arguments schema, but no schema was provided and couldn't be inferred from the script for language `{language:?}`. Try removing schema validation for this job").into())
+                            }
                         }
+                    } else {
+                        // Schema validation is not expected for this language/code.
+                        Ok(None)
                     }
             }
             .map_ok(Arc::new);
