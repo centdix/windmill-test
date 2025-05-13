@@ -217,7 +217,15 @@ export async function inferArgs(
 
 		argSigToJsonSchemaType(arg.typ, schema.properties[arg.name])
 
-		schema.properties[arg.name].default = arg.default
+		// Only set default in schema if it's a non-null default, or if the field is effectively optional.
+		// `arg.has_default` is true if the type annotation implies optional (e.g. `Optional[str]`, `str | None`)
+		// OR if there's an actual default value in Python (e.g. `foo: str = "abc"`).
+		// If `arg.default` is null, it means no Python default was specified.
+		// If `!arg.has_default` is true, it means the argument is strictly required (not Optional and no Python default).
+		// In this case (strictly required, no Python default), we should not emit `default: null` in the schema.
+		if (arg.default !== null || arg.has_default) {
+			schema.properties[arg.name].default = arg.default
+		}
 
 		if (!arg.has_default && !schema.required.includes(arg.name)) {
 			schema.required.push(arg.name)
