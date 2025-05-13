@@ -605,7 +605,13 @@ export async function inferSchema(
 
     argSigToJsonSchemaType(arg.typ, currentSchema.properties[arg.name]);
 
-    currentSchema.properties[arg.name].default = arg.default;
+    if (arg.has_default) {
+      currentSchema.properties[arg.name].default = arg.default;
+    } else {
+      // If the argument has no default in the Python signature,
+      // the 'default' keyword should not be present in the JSON schema.
+      delete currentSchema.properties[arg.name].default;
+    }
 
     if (!arg.has_default && !currentSchema.required.includes(arg.name)) {
       currentSchema.required.push(arg.name);
