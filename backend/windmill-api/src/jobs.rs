@@ -3512,8 +3512,6 @@ async fn batch_rerun_handle_job(
 }
 
 
-// Helper function to parse script signature, similar to worker's parse_sig_of_lang
-// This is needed for API-side validation when an explicit schema is not present.
 fn api_parse_sig_of_lang(
     code: &str,
     language: Option<&ScriptLang>,
@@ -5704,25 +5702,6 @@ pub async fn run_job_by_hash(
     args: WebhookArgs,
 ) -> error::Result<(StatusCode, String)> {
     let args = args.to_push_args_owned(&authed, &db, &w_id).await?;
-
-    let script_for_validation = sqlx::query!(
-        "SELECT content, language as \"language: ScriptLang\", schema as \"schema_json: _\" FROM script WHERE hash = $1 AND workspace_id = $2",
-        script_hash.0, &w_id
-    )
-    .fetch_optional(&db)
-    .await?
-    .ok_or_else(|| Error::NotFound(format!("Script not found with hash {} in workspace {}", script_hash, w_id)))?;
-
-    validate_script_args(
-        &db,
-        &w_id,
-        &format!("hash:{}", script_hash),
-        &script_for_validation.content,
-        &script_for_validation.language,
-        script_for_validation.schema_json.as_ref().map(|s| s.get()),
-        None, // TODO: Determine entrypoint override if necessary
-        &args_map.args,
-    ).await?;
 
     run_job_by_hash_inner(
         authed,
