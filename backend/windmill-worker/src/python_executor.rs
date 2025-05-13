@@ -1312,8 +1312,13 @@ async fn prepare_wrapper(
             .map(|x| {
                 let name = &x.name;
                 if x.default.is_none() {
-                    format!("args[\"{name}\"] = kwargs.get(\"{name}\")")
+                    // For required arguments (no default in signature), access directly.
+                    // This will raise a KeyError if the argument is missing,
+                    // providing a more explicit failure than defaulting to None.
+                    format!("args[\"{name}\"] = kwargs[\"{name}\"]")
                 } else {
+                    // For optional arguments with defaults, use .get() and then
+                    // remove if None, so Python's default can take effect.
                     format!(
                         r#"args["{name}"] = kwargs.get("{name}")
     if args["{name}"] is None:
