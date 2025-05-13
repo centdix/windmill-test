@@ -73,6 +73,7 @@ use windmill_common::{
     flows::{add_virtual_items_if_necessary, resolve_maybe_value, FlowValue},
     jobs::{script_path_to_payload, CompletedJob, JobKind, JobPayload, QueuedJob, RawCode},
     oauth2::HmacSha256,
+    schema::SchemaValidator,
     scripts::{ScriptHash, ScriptLang},
     users::username_to_permissioned_as,
     utils::{
@@ -91,6 +92,52 @@ use windmill_queue::{
     cancel_job, get_result_and_success_by_id_from_flow, job_is_complete, push, PushArgs,
     PushArgsOwned, PushIsolationLevel,
 };
+
+/// Validates arguments against a JSON schema.
+/// Returns Ok(()) if validation passes or if no schema is provided.
+/// Returns Err(Error::BadRequest) if validation fails.
+fn validate_args_against_schema(
+    schema_value: Option<&serde_json::Value>,
+    args: &HashMap<String, Box<RawValue>>,
+) -> error::Result<()> {
+    if let Some(schema_val) = schema_value {
+        // Attempt to parse the schema Value into a string, then create the validator.
+        // This might be inefficient if the schema is already validated elsewhere,
+        // consider passing SchemaValidator directly if possible.
+        match serde_json::to_string(schema_val) {
+            Ok(schema_str) => {
+                match SchemaValidator::from_schema(&schema_str) {
+                    Ok(validator) => validator.validate(args).map_err(|e| match e {
+                        // Remap ArgumentErr to BadRequest for API responses
+                        Error::ArgumentErr(msg) => Error::BadRequest(msg),
+                        other => other,
+                    }),
+                    Err(e) => {
+                        // Log schema parsing error, but maybe don't fail the request?
+                        // Or return a specific error indicating schema issues.
+                        tracing::warn!("Failed to create schema validator: {}", e);
+                        // Decide whether to proceed without validation or return an error
+                        // For now, let's proceed without validation if schema parsing fails
+                        Ok(())
+                        // Alternatively, return an error:
+                        // Err(Error::internal_err(format!("Invalid schema provided: {}", e)))
+                    }
+                }
+            }
+            Err(e) => {
+                tracing::warn!("Failed to serialize schema value to string: {}", e);
+                // Proceed without validation if serialization fails
+                Ok(())
+                // Alternatively, return an error:
+                // Err(Error::internal_err(format!("Failed to process schema: {}", e)))
+            }
+        }
+    } else {
+        // No schema provided, validation passes.
+        Ok(())
+    }
+}
+
 
 #[cfg(feature = "prometheus")]
 type Histo = prometheus::Histogram;
@@ -3750,12 +3797,23 @@ pub async fn run_script_by_path_inner(
 
     let mut tx = user_db.clone().begin(&authed).await?;
     let (job_payload, tag, _delete_after_use, timeout, on_behalf_of) =
-        script_path_to_payload(script_path, &mut *tx, &w_id, run_query.skip_preprocessor).await?;
+        script_path_to_payload(script_path.clone(), &mut *tx, &w_id, run_query.skip_preprocessor).await?;
+    let schema: Option<serde_json::Value> = sqlx::query_scalar!(
+        r#"SELECT schema as "schema: _" FROM script WHERE workspace_id = $1 AND path = $2 ORDER BY created_at DESC LIMIT 1"#,
+        &w_id, script_path
+    )
+    .fetch_optional(&mut *tx)
+    .await?
+    .flatten();
+
     drop(tx);
     let scheduled_for = run_query.get_scheduled_for(&db).await?;
 
     let tag = run_query.tag.clone().or(tag);
     check_tag_available_for_workspace(&w_id, &tag, &authed).await?;
+
+    // Validate arguments against the schema
+    validate_args_against_schema(schema.as_ref(), &args.args)?;
 
     let (email, permissioned_as, push_authed, tx) =
         if let Some(on_behalf_of) = on_behalf_of.as_ref() {
@@ -4552,10 +4610,21 @@ pub async fn run_wait_result_script_by_path_internal(
 
     let mut tx = user_db.clone().begin(&authed).await?;
     let (job_payload, tag, delete_after_use, timeout, on_behalf_of) =
-        script_path_to_payload(script_path, &mut *tx, &w_id, run_query.skip_preprocessor).await?;
+        script_path_to_payload(script_path.clone(), &mut *tx, &w_id, run_query.skip_preprocessor).await?;
+    let schema: Option<serde_json::Value> = sqlx::query_scalar!(
+        r#"SELECT schema as "schema: _" FROM script WHERE workspace_id = $1 AND path = $2 ORDER BY created_at DESC LIMIT 1"#,
+        &w_id, script_path
+    )
+    .fetch_optional(&mut *tx)
+    .await?
+    .flatten();
+
 
     let tag = run_query.tag.clone().or(tag);
     check_tag_available_for_workspace(&w_id, &tag, &authed).await?;
+
+    // Validate arguments against the schema
+    validate_args_against_schema(schema.as_ref(), &args.args)?;
 
     let (email, permissioned_as, push_authed, tx) =
         if let Some(on_behalf_of) = on_behalf_of.as_ref() {
@@ -4647,8 +4716,20 @@ pub async fn run_wait_result_script_by_hash(
     }
     check_scopes(&authed, || format!("run:script/{path}"))?;
 
+    // Fetch schema separately
+    let schema: Option<serde_json::Value> = sqlx::query_scalar!(
+        r#"SELECT schema as "schema: _" FROM script WHERE workspace_id = $1 AND hash = $2"#,
+        &w_id, hash
+    )
+    .fetch_optional(&db) // Use db directly
+    .await?
+    .flatten();
+
     let tag = run_query.tag.clone().or(tag);
     check_tag_available_for_workspace(&w_id, &tag, &authed).await?;
+
+    // Validate arguments against the schema
+    validate_args_against_schema(schema.as_ref(), &args.args)?;
 
     let (email, permissioned_as, push_authed, tx) = if let Some(email) = on_behalf_of_email.as_ref()
     {
@@ -4845,6 +4926,35 @@ async fn run_preview_script(
     let scheduled_for = run_query.get_scheduled_for(&db).await?;
     let tag = run_query.tag.clone().or(preview.tag.clone());
     check_tag_available_for_workspace(&w_id, &tag, &authed).await?;
+
+    // Fetch schema for preview if path or hash is available
+    let schema: Option<serde_json::Value> = if let Some(hash_str) = &preview.script_hash {
+         if let Ok(hash_val) = windmill_common::scripts::to_i64(hash_str) {
+             sqlx::query_scalar!(
+                 r#"SELECT schema as "schema: _" FROM script WHERE workspace_id = $1 AND hash = $2"#,
+                 &w_id, hash_val
+             )
+             .fetch_optional(&db)
+             .await?
+             .flatten()
+         } else { None }
+    } else if let Some(path_str) = &preview.path {
+        sqlx::query_scalar!(
+            r#"SELECT schema as "schema: _" FROM script WHERE workspace_id = $1 AND path = $2 ORDER BY created_at DESC LIMIT 1"#,
+            &w_id, path_str
+        )
+        .fetch_optional(&db)
+        .await?
+        .flatten()
+    } else {
+        None // No path or hash, cannot fetch schema for pure preview
+    };
+
+    let preview_args = preview.args.unwrap_or_default();
+    // Validate arguments if schema was found
+    validate_args_against_schema(schema.as_ref(), &preview_args)?;
+
+
     let tx = PushIsolationLevel::Isolated(user_db.clone(), authed.clone().into());
 
     let (uuid, tx) = push(
@@ -4870,7 +4980,7 @@ async fn run_preview_script(
                 dedicated_worker: preview.dedicated_worker,
             }),
         },
-        PushArgs::from(&preview.args.unwrap_or_default()),
+        PushArgs::from(&preview_args), // Use the validated args variable
         authed.display_username(),
         &authed.email,
         username_to_permissioned_as(&authed.username),
@@ -5610,6 +5720,17 @@ pub async fn run_job_by_hash_inner(
     ) = get_path_tag_limits_cache_for_hash(user_db.clone().begin(&authed).await?, &w_id, hash)
         .await?;
     check_scopes(&authed, || format!("run:script/{path}"))?;
+
+    // Fetch schema separately as it's not returned by get_path_tag_limits_cache_for_hash
+    let schema: Option<serde_json::Value> = sqlx::query_scalar!(
+        r#"SELECT schema as "schema: _" FROM script WHERE workspace_id = $1 AND hash = $2"#,
+        &w_id, hash
+    )
+    .fetch_optional(&db) // Use db directly, no need for tx here
+    .await?
+    .flatten();
+
+
     if let Some(run_query_cache_ttl) = run_query.cache_ttl {
         cache_ttl = Some(run_query_cache_ttl);
     }
@@ -5617,6 +5738,9 @@ pub async fn run_job_by_hash_inner(
     let tag = run_query.tag.clone().or(tag);
 
     check_tag_available_for_workspace(&w_id, &tag, &authed).await?;
+
+    // Validate arguments against the schema
+    validate_args_against_schema(schema.as_ref(), &args.args)?;
 
     let (email, permissioned_as, push_authed, tx) = if let Some(email) = on_behalf_of_email.as_ref()
     {
