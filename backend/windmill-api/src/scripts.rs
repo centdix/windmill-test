@@ -19,6 +19,7 @@ use crate::{
     HTTP_CLIENT,
 };
 use axum::extract::Multipart;
+use windmill_common::schema::is_schema_validation_disabled;
 
 use axum::{
     extract::{Extension, Path, Query},
@@ -681,7 +682,17 @@ async fn create_script_internal<'c>(
         ns.language.clone()
     };
 
-    let validate_schema = should_validate_schema(&ns.content, &ns.language);
+    let explicitly_enabled = should_validate_schema(&ns.content, &ns.language);
+    let explicitly_disabled = is_schema_validation_disabled(&ns.content, &ns.language);
+
+    let validate_schema = if explicitly_disabled {
+        false
+    } else if explicitly_enabled {
+        true
+    } else {
+        // Default behavior: if schema is present, validate.
+        ns.schema.is_some()
+    };
 
     let (no_main_func, has_preprocessor) = match lang {
         ScriptLang::Bun | ScriptLang::Bunnative | ScriptLang::Deno | ScriptLang::Nativets => {
