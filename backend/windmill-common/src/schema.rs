@@ -193,18 +193,20 @@ impl SchemaValidationRule {
         Ok(schema_rules)
     }
 
-    fn apply_rule(&self, key: &str, val: &Value, required: bool) -> Result<(), Error> {
-        if val.is_null() {
-            if !required {
-                return Ok(());
-            }
-            return Err(Error::ArgumentErr(format!("Argument {key} cannot be null")));
-        }
+    fn apply_rule(&self, key: &str, val: &Value, _required: bool) -> Result<(), Error> {
+        // The initial null check was too broad.
+        // A field can be "required" (must be present in input), but its value can be `null`
+        // if its type schema allows `null` (e.g. `type: ["string", "null"]`).
+        // Individual rules are now responsible for handling nulls according to their semantics.
+        // For example, `IsString` will fail on `null`, `IsNull` will pass on `null`.
+        // `IsUnionType` will correctly delegate to `IsNull` if it's part of the union.
+
         match self {
             SchemaValidationRule::IsNull => {
                 if !val.is_null() {
                     return Err(Error::ArgumentErr(format!(
-                        "Argument `{key}` should be null"
+                        "Argument `{key}` should be null, but received: {}",
+                        val.to_string()
                     )));
                 }
             }
@@ -378,6 +380,19 @@ impl SchemaValidator {
                 for rule in rules {
                     rule.apply_rule(key, &parsed_val, self.required.contains(key))?;
                 }
+            }
+            // If a required key is not in args, it's caught by the loop above.
+            // If an optional key (not in self.required) is not in args, it's fine.
+        }
+
+        // Check for any extraneous arguments not defined in the schema.
+        for provided_arg_key in args.keys() {
+            if !self.rules.iter().any(|(rule_key, _)| rule_key == provided_arg_key) {
+                let allowed_args = self.rules.iter().map(|(k, _)| format!("`{}`", k)).join(", ");
+                return Err(Error::ArgumentErr(format!(
+                    "Unexpected argument: `{provided_arg_key}`. Allowed arguments are: {}.",
+                    if allowed_args.is_empty() { "none" } else { &allowed_args }
+                )));
             }
         }
 
