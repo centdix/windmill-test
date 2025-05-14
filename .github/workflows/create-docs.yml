@@ -1,15 +1,12 @@
 # main/.github/workflows/dispatch-docs.yml
 on:
   pull_request:
-    types: [opened]
+    types: [opened, reopened, synchronize]
 
 jobs:
   trigger-docs:
-    # point at the reusable workflow you just defined in the docs repo
     uses: centdix/windmilldocs/.github/workflows/create-docs.yml@main
     with:
       pr_number: ${{ github.event.pull_request.number }}
       pr_branch: ${{ github.event.pull_request.head.ref }}
       repo: ${{ github.event.repository.name }}
-    secrets:
-      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
