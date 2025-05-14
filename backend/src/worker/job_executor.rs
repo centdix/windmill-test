@@ -2,13 +2,6 @@
 use serde_json::Value;
 use jsonschema::{JSONSchema, Draft};
 
-// --- Error types and validation function ---
-// These definitions (ServiceError, ValidationError, validate_script_arguments)
-// are identical to those in `preview.rs`. In a real project, they should be
-// defined in a shared module (e.g., `windmill_common::validation` or a local `validation.rs` module)
-// and imported here to avoid duplication.
-// For this exercise, we are including them directly.
-
 #[derive(Debug)]
 pub enum ServiceError {
     Validation(ValidationError),
