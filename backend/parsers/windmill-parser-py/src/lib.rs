@@ -104,7 +104,7 @@ pub fn parse_python_signature(
                         .as_ref()
                         .map_or((Typ::Unknown, false), |e| parse_expr(e));
 
-                    let default = if i >= def_arg_start {
+                    let default_value_provided = if i >= def_arg_start {
                         params
                             .defaults()
                             .nth(i - def_arg_start)
@@ -122,10 +122,10 @@ pub fn parse_python_signature(
                     };
 
                     if should_get_type_from_default
-                        && default.is_some()
-                        && default != Some(json!(FUNCTION_CALL))
+                        && default_value_provided.is_some()
+                        && default_value_provided != Some(json!(FUNCTION_CALL))
                     {
-                        typ = json_to_typ(default.as_ref().unwrap());
+                        typ = json_to_typ(default_value_provided.as_ref().unwrap());
                     }
 
                     // if the type is still a list of unknowns after checking the default, we set it to a list of strings to not break past behavior
@@ -140,8 +140,10 @@ pub fn parse_python_signature(
                         otyp: None,
                         name: x.as_arg().arg.to_string(),
                         typ,
-                        has_default: has_default || default.is_some(),
-                        default,
+                        // An argument has a default if a Python default value is provided.
+                        // The nullability of its type (e.g. Optional[str]) is handled by the Typ enum.
+                        has_default: default_value_provided.is_some(),
+                        default: default_value_provided,
                         oidx: None,
                     }
                 })
