@@ -1,3 +1,4 @@
+added
 # Changelog
 
 ## [1.487.0](https://github.com/windmill-labs/windmill/compare/v1.486.1...v1.487.0) (2025-05-06)
