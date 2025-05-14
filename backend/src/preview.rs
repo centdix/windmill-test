@@ -14,7 +14,6 @@ impl From<ValidationError> for ServiceError {
     }
 }
 
-// Custom error type for validation failures
 #[derive(Debug)]
 pub enum ValidationError {
     MissingRequiredArgument(String),
