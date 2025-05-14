@@ -1,10 +1,6 @@
-
 use serde_json::Value;
 use jsonschema::{JSONSchema, Draft};
 
-// Placeholder for Error type, assuming it's defined elsewhere (e.g., windmill_common::error::Error)
-// For this example, let's define a simple local Error that can wrap ValidationError
-// In a real project, these error types and the validation function should be in a shared module.
 #[derive(Debug)]
 pub enum ServiceError {
     Validation(ValidationError),
