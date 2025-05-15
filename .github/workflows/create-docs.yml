@@ -14,5 +14,4 @@ jobs:
       comment_text: ${{ github.event.comment.body }}
     secrets:
       DOCS_TOKEN: ${{ secrets.DOCS_TOKEN }}
-      GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
       GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
