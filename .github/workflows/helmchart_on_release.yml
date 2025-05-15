@@ -41,7 +41,12 @@ jobs:
           CURRENT_VERSION=$(grep "version:" ./charts/windmill/Chart.yaml | awk '{print $2}' | head -n 1)
           NEW_VERSION=$(echo "$CURRENT_VERSION" | awk -F. '{$NF = $NF + 1;} 1' | sed 's/ /./g')
           sed -i "s/^version: .*/version: $NEW_VERSION/" ./charts/windmill/Chart.yaml
-          sed -i "s/appVersion: .*/appVersion: ${{ env.VERSION }}/" ./charts/windmill/Chart.yaml
+
+          # Get the app version from the version
+          VERSION=${{ env.VERSION }}
+          APP_VERSION=${VERSION#refs/tag/v}
+          APP_VERSION=${APP_VERSION%/}
+          sed -i "s/appVersion: .*/appVersion: $APP_VERSION/" ./charts/windmill/Chart.yaml
 
       - name: Commit and push
         run: |
