@@ -31,16 +31,16 @@ jobs:
           PR_URL: ${{ inputs.PR_URL }}
           PR_AUTHOR: ${{ inputs.PR_AUTHOR }}
         run: |
-          payload=$(jq -n \\\\
-            --arg content "${PR_URL}" \\\\
-            --arg thread "$PR_TITLE by \`${PR_AUTHOR}\`" \\\\
+          payload=$(jq -n \
+            --arg content "${PR_URL}" \
+            --arg thread "$PR_TITLE by \`${PR_AUTHOR}\`" \
             '{
               content: $content,
               thread_name: $thread,
               auto_archive_duration: 10080
             }'
           )
-          curl -H "Content-Type: application/json" \\\\
-               -X POST \\\\
-               --data "$payload" \\\\
+          curl -H "Content-Type: application/json" \
+               -X POST \
+               --data "$payload" \
                "$WEBHOOK_URL"
