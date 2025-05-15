@@ -10,3 +10,5 @@ jobs:
       pr_number: ${{ github.event.pull_request.number }}
       pr_branch: ${{ github.event.pull_request.head.ref }}
       repo: ${{ github.event.repository.name }}
+    secrets:
+      DOCS_TOKEN: ${{ secrets.DOCS_TOKEN }}
