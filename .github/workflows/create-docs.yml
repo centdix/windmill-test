@@ -1,14 +1,16 @@
 # main/.github/workflows/dispatch-docs.yml
 on:
-  pull_request:
-    types: [opened, reopened, synchronize]
+  issue_comment:
+    types: [created]
 
 jobs:
   trigger-docs:
+    if: ${{ github.event.issue.pull_request && startsWith(github.event.comment.body, '/docs') }}
     uses: centdix/windmilldocs/.github/workflows/create-docs.yml@main
     with:
       pr_number: ${{ github.event.pull_request.number }}
       pr_branch: ${{ github.event.pull_request.head.ref }}
       repo: ${{ github.event.repository.name }}
+      comment_text: ${{ substring(github.event.comment.body, 5) }}
     secrets:
       DOCS_TOKEN: ${{ secrets.DOCS_TOKEN }}
