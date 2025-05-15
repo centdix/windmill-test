@@ -38,9 +38,9 @@ jobs:
       - name: Bump helm version
         run: |
           # Get current version and increment it by 1
-          CURRENT_VERSION=$(grep "version:" ./charts/windmill/Chart.yaml | awk '{print $2}')
+          CURRENT_VERSION=$(grep "version:" ./charts/windmill/Chart.yaml | awk '{print $2}' | head -n 1)
           NEW_VERSION=$(echo "$CURRENT_VERSION" | awk -F. '{$NF = $NF + 1;} 1' | sed 's/ /./g')
-          sed -i "s/version: .*/version: $NEW_VERSION/" ./charts/windmill/Chart.yaml
+          sed -i "s/^version: .*/version: $NEW_VERSION/" ./charts/windmill/Chart.yaml
           sed -i "s/appVersion: .*/appVersion: ${{ env.VERSION }}/" ./charts/windmill/Chart.yaml
 
       - name: Commit and push
