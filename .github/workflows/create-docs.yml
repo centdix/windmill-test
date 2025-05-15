@@ -11,6 +11,6 @@ jobs:
       pr_number: ${{ github.event.pull_request.number }}
       pr_branch: ${{ github.event.pull_request.head.ref }}
       repo: ${{ github.event.repository.name }}
-      comment_text: ${{ github.event.comment.body && github.event.comment.body.slice(5) }}
+      comment_text: ${{ github.event.comment.body }}
     secrets:
       DOCS_TOKEN: ${{ secrets.DOCS_TOKEN }}
