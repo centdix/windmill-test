@@ -22,7 +22,7 @@ on:
 
 jobs:
   send_notification:
-    runs-on: ubicloud-standard-2
+    runs-on: ubuntu-latest
     steps:
       - name: Send Discord notification and start a thread
         env:
