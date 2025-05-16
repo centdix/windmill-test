@@ -35,7 +35,7 @@ jobs:
           PR_TITLE: ${{ inputs.PR_TITLE }}
           PR_URL: ${{ inputs.PR_URL }}
           PR_AUTHOR: ${{ inputs.PR_AUTHOR }}
-                run: |
+        run: |
           payload=$(jq -n \
             --arg content "${PR_URL}" \
             --arg thread "$PR_TITLE by \`${PR_AUTHOR}\`" \
