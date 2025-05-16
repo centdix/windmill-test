@@ -19,10 +19,17 @@ on:
         description: "The status of the PR"
         required: true
         type: string
+      DISCORD_CHANNEL_ID:
+        description: "The Discord channel ID"
+        required: false
+        type: string
     secrets:
       DISCORD_WEBHOOK_URL:
         description: "Discord Webhook URL"
         required: true
+      DISCORD_BOT_TOKEN:
+        description: "Discord Bot Token"
+        required: false
 
 jobs:
   open_thread:
