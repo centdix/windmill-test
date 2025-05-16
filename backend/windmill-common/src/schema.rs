@@ -458,6 +458,100 @@ impl JsonPrimitiveType {
     }
 }
 
+// Helper function to create validation rules from a parsed script argument type
+fn make_rules_for_arg_typ(typ: &windmill_parser::Typ) -> Vec<SchemaValidationRule> {
+    let mut rules = vec![];
+
+    match typ {
+        windmill_parser::Typ::Str(enum_variants) => {
+            rules.push(SchemaValidationRule::IsString);
+
+            if let Some(enum_variants) = enum_variants {
+                rules.push(SchemaValidationRule::StrictEnum(
+                    enum_variants
+                        .iter()
+                        .map(|v| serde_json::Value::String(v.to_string()))
+                        .collect(),
+                ));
+            }
+        }
+        windmill_parser::Typ::Int => {
+            rules.push(SchemaValidationRule::IsInteger);
+        }
+        windmill_parser::Typ::Float => {
+            rules.push(SchemaValidationRule::IsNumber);
+        }
+        windmill_parser::Typ::Bool => {
+            rules.push(SchemaValidationRule::IsBool);
+        }
+        windmill_parser::Typ::List(typ) => {
+            rules.push(SchemaValidationRule::IsArray(make_rules_for_arg_typ(typ)));
+        }
+        windmill_parser::Typ::Bytes => {
+            rules.push(SchemaValidationRule::IsString);
+            rules.push(SchemaValidationRule::IsBytes);
+        }
+        windmill_parser::Typ::Datetime => {
+            rules.push(SchemaValidationRule::IsString);
+            rules.push(SchemaValidationRule::IsDatetime);
+        }
+        windmill_parser::Typ::Email => {
+            rules.push(SchemaValidationRule::IsString);
+            rules.push(SchemaValidationRule::IsEmail);
+        }
+        windmill_parser::Typ::Sql => {
+            rules.push(SchemaValidationRule::IsString);
+        }
+        windmill_parser::Typ::Object(props) => {
+            let mut obj_rules = vec![];
+
+            for prop in props {
+                obj_rules.push((prop.key.to_string(), make_rules_for_arg_typ(&prop.typ)));
+            }
+
+            rules.push(SchemaValidationRule::IsObject(obj_rules))
+        }
+        windmill_parser::Typ::OneOf(variants) => {
+            let mut rules_map = HashMap::new();
+
+            for variant in variants {
+                let mut obj_rules = vec![];
+
+                for prop in &variant.properties {
+                    obj_rules.push((prop.key.to_string(), make_rules_for_arg_typ(&prop.typ)));
+                }
+                rules_map.insert(variant.label.to_string(), vec![SchemaValidationRule::IsObject(obj_rules)]);
+            }
+
+            rules.push(SchemaValidationRule::IsOneOf(rules_map))
+        }
+        windmill_parser::Typ::Resource(_) => (), // Resources are validated by their existence/type, not primitive rules here
+        windmill_parser::Typ::DynSelect(_) => (), // DynSelect is a UI concern, value is typically string/object
+        windmill_parser::Typ::Unknown => (), // No specific rules for Unknown
+    }
+
+    rules
+}
+
+/// Creates a `SchemaValidator` from a parsed `MainArgSignature`.
+/// This is used when a script doesn't have an explicit JSON schema,
+/// and we infer one from the script's signature.
+pub fn schema_validator_from_main_arg_sig(sig: &windmill_parser::MainArgSignature) -> SchemaValidator {
+    let mut rules = vec![];
+    let mut required = vec![];
+
+    for arg in &sig.args {
+        if !arg.has_default {
+            required.push(arg.name.to_string());
+        }
+
+        rules.push((arg.name.to_string(), make_rules_for_arg_typ(&arg.typ)));
+    }
+
+    SchemaValidator { required, rules }
+}
+
+
 #[cfg(test)]
 mod tests {
     use serde_json::json;

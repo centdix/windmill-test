@@ -92,6 +92,7 @@ use windmill_queue::{
     PushArgsOwned, PushIsolationLevel,
 };
 
+
 #[cfg(feature = "prometheus")]
 type Histo = prometheus::Histogram;
 
@@ -3510,6 +3511,84 @@ async fn batch_rerun_handle_job(
     ))
 }
 
+
+fn api_parse_sig_of_lang(
+    code: &str,
+    language: Option<&ScriptLang>,
+    main_override: Option<String>,
+) -> Result<Option<MainArgSignature>> {
+    Ok(if let Some(lang) = language {
+        match lang {
+            ScriptLang::Nativets | ScriptLang::Deno | ScriptLang::Bun | ScriptLang::Bunnative => {
+                Some(windmill_parser_ts::parse_deno_signature(
+                    code,
+                    true,
+                    false,
+                    main_override,
+                ).map_err(|e| Error::BadRequest(format!("TS parser error: {e}")))?)
+            }
+            ScriptLang::Python3 => Some(windmill_parser_py::parse_python_signature(code, main_override, false).map_err(|e| Error::BadRequest(format!("Python parser error: {e}")))?) ,
+            ScriptLang::Go => Some(windmill_parser_go::parse_go_sig(code).map_err(|e| Error::BadRequest(format!("Go parser error: {e}")))?) ,
+            ScriptLang::Bash => Some(windmill_parser_bash::parse_bash_sig(code).map_err(|e| Error::BadRequest(format!("Bash parser error: {e}")))?) ,
+            ScriptLang::Powershell => Some(windmill_parser_bash::parse_powershell_sig(code).map_err(|e| Error::BadRequest(format!("Powershell parser error: {e}")))?) ,
+            ScriptLang::Postgresql => Some(windmill_parser_sql::parse_pgsql_sig(code).map_err(|e| Error::BadRequest(format!("PostgreSQL parser error: {e}")))?) ,
+            ScriptLang::Mysql => Some(windmill_parser_sql::parse_mysql_sig(code).map_err(|e| Error::BadRequest(format!("MySQL parser error: {e}")))?) ,
+            ScriptLang::Bigquery => Some(windmill_parser_sql::parse_bigquery_sig(code).map_err(|e| Error::BadRequest(format!("BigQuery parser error: {e}")))?) ,
+            ScriptLang::Snowflake => Some(windmill_parser_sql::parse_snowflake_sig(code).map_err(|e| Error::BadRequest(format!("Snowflake parser error: {e}")))?) ,
+            ScriptLang::Mssql => Some(windmill_parser_sql::parse_mssql_sig(code).map_err(|e| Error::BadRequest(format!("MSSQL parser error: {e}")))?) ,
+            ScriptLang::OracleDB => Some(windmill_parser_sql::parse_oracledb_sig(code).map_err(|e| Error::BadRequest(format!("OracleDB parser error: {e}")))?) ,
+            ScriptLang::Php => Some(windmill_parser_php::parse_php_signature(code, main_override).map_err(|e| Error::BadRequest(format!("PHP parser error: {e}")))?) ,
+            ScriptLang::Rust => Some(windmill_parser_rust::parse_rust_signature(code).map_err(|e| Error::BadRequest(format!("Rust parser error: {e}")))?) ,
+            ScriptLang::Ansible => Some(windmill_parser_yaml::parse_ansible_sig(code).map_err(|e| Error::BadRequest(format!("Ansible parser error: {e}")))?) ,
+            ScriptLang::CSharp => Some(windmill_parser_csharp::parse_csharp_signature(code).map_err(|e| Error::BadRequest(format!("CSharp parser error: {e}")))?) ,
+            ScriptLang::Nu => Some(windmill_parser_nu::parse_nu_signature(code).map_err(|e| Error::BadRequest(format!("Nu parser error: {e}")))?) ,
+            ScriptLang::Java => Some(windmill_parser_java::parse_java_signature(code).map_err(|e| Error::BadRequest(format!("Java parser error: {e}")))?) ,
+            // for related places search: ADD_NEW_LANG
+            ScriptLang::Graphql => None, // Graphql does not have a signature in the same way
+        }
+    } else {
+        None
+    })
+}
+
+async fn validate_script_args(
+    db: &DB,
+    w_id: &str,
+    script_path_for_error: &str, // For better error messages
+    script_content: &str,
+    script_lang: &ScriptLang,
+    script_schema_json_str: Option<&str>, // Explicit schema from DB/NewScript
+    entrypoint_override: Option<String>,
+    args_to_validate: &HashMap<String, Box<RawValue>>,
+) -> Result<(), Error> {
+    // Only validate if the script has the magic comment
+    if !should_validate_schema(script_content, script_lang) {
+        return Ok(());
+    }
+
+    let validator = if let Some(schema_json_str) = script_schema_json_str {
+        SchemaValidator::from_schema(schema_json_str)
+            .map_err(|e| Error::BadRequest(format!("Invalid schema for script {script_path_for_error}: {e}")))?
+    } else {
+        // Attempt to infer schema from signature
+        let sig_opt = api_parse_sig_of_lang(script_content, Some(script_lang), entrypoint_override)?;
+        if let Some(sig) = sig_opt {
+            schema_validator_from_main_arg_sig(&sig)
+        } else {
+            // Cannot infer schema, but validation is requested.
+            return Err(Error::BadRequest(format!(
+                "Schema validation is enabled for script {script_path_for_error}, but schema could not be inferred for language {:?}.",
+                script_lang
+            )));
+        }
+    };
+
+    validator.validate(args_to_validate).map_err(|e| Error::InvalidArgument(format!("Argument validation failed for {script_path_for_error}: {e}")))?;
+
+    Ok(())
+}
+
+
 pub async fn run_flow_by_path(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
@@ -3519,7 +3598,7 @@ pub async fn run_flow_by_path(
     args: WebhookArgs,
 ) -> error::Result<(StatusCode, String)> {
     let args = args.to_push_args_owned(&authed, &db, &w_id).await?;
-
+    // Flow arguments are validated by the flow engine itself based on its schema, not here.
     run_flow_by_path_inner(authed, db, user_db, w_id, flow_path, run_query, args, None).await
 }
 
@@ -3718,6 +3797,7 @@ pub async fn run_script_by_path(
     args: WebhookArgs,
 ) -> error::Result<(StatusCode, String)> {
     let args = args.to_push_args_owned(&authed, &db, &w_id).await?;
+
     run_script_by_path_inner(
         authed,
         db,
@@ -4521,7 +4601,26 @@ pub async fn run_wait_result_script_by_path(
     #[cfg(feature = "enterprise")]
     check_license_key_valid().await?;
 
-    let args = args.to_push_args_owned(&authed, &db, &w_id).await?;
+    let args_map = args.to_push_args_owned(&authed, &db, &w_id).await?;
+
+    let script_for_validation = sqlx::query!(
+        "SELECT content, language as \"language: ScriptLang\", schema as \"schema_json: _\" FROM script WHERE path = $1 AND workspace_id = $2 AND archived = false ORDER BY created_at DESC LIMIT 1",
+        script_path.path_str(), &w_id
+    )
+    .fetch_optional(&db)
+    .await?
+    .ok_or_else(|| Error::NotFound(format!("Script not found at path {} in workspace {}", script_path.path_str(), w_id)))?;
+
+    validate_script_args(
+        &db,
+        &w_id,
+        script_path.path_str(),
+        &script_for_validation.content,
+        &script_for_validation.language,
+        script_for_validation.schema_json.as_ref().map(|s| s.get()),
+        None, // TODO: Determine entrypoint override
+        &args_map.args,
+    ).await?;
 
     run_wait_result_script_by_path_internal(
         db,
@@ -4621,10 +4720,30 @@ pub async fn run_wait_result_script_by_hash(
     #[cfg(feature = "enterprise")]
     check_license_key_valid().await?;
 
-    let args = args.to_push_args_owned(&authed, &db, &w_id).await?;
+    let args_map = args.to_push_args_owned(&authed, &db, &w_id).await?;
     check_queue_too_long(&db, run_query.queue_limit).await?;
 
     let hash = script_hash.0;
+
+    // Fetch script details for validation
+    let script_for_validation = sqlx::query!(
+        "SELECT content, language as \"language: ScriptLang\", schema as \"schema_json: _\" FROM script WHERE hash = $1 AND workspace_id = $2",
+        hash, &w_id
+    )
+    .fetch_optional(&db)
+    .await?
+    .ok_or_else(|| Error::NotFound(format!("Script not found with hash {} in workspace {}", hash, w_id)))?;
+
+    validate_script_args(
+        &db,
+        &w_id,
+        &format!("hash:{}", hash),
+        &script_for_validation.content,
+        &script_for_validation.language,
+        script_for_validation.schema_json.as_ref().map(|s| s.get()),
+        None, // TODO: Determine entrypoint override
+        &args_map.args,
+    ).await?;
     let (
         path,
         tag,
@@ -4684,7 +4803,7 @@ pub async fn run_wait_result_script_by_hash(
             apply_preprocessor: !run_query.skip_preprocessor.unwrap_or(false)
                 && has_preprocessor.unwrap_or(false),
         },
-        PushArgs { args: &args.args, extra: args.extra },
+        PushArgs { args: &args_map.args, extra: args_map.extra },
         authed.display_username(),
         email,
         permissioned_as,
@@ -4842,6 +4961,24 @@ async fn run_preview_script(
             "Operators cannot run preview jobs for security reasons".to_string(),
         ));
     }
+
+    let script_content = preview.content.as_deref().unwrap_or_default();
+    let script_lang = preview.language.as_ref().unwrap_or(&ScriptLang::Deno);
+    let script_args = preview.args.as_ref().cloned().unwrap_or_default();
+    
+    // Preview doesn't have an explicit schema string, so schema_json_str is None.
+    // Entrypoint override is also assumed None for previews.
+    validate_script_args(
+        &db,
+        &w_id,
+        preview.path.as_deref().unwrap_or("preview"),
+        script_content,
+        script_lang,
+        None, 
+        None, 
+        &script_args,
+    ).await?;
+
     let scheduled_for = run_query.get_scheduled_for(&db).await?;
     let tag = run_query.tag.clone().or(preview.tag.clone());
     check_tag_available_for_workspace(&w_id, &tag, &authed).await?;
@@ -5565,6 +5702,7 @@ pub async fn run_job_by_hash(
     args: WebhookArgs,
 ) -> error::Result<(StatusCode, String)> {
     let args = args.to_push_args_owned(&authed, &db, &w_id).await?;
+
     run_job_by_hash_inner(
         authed,
         db,
