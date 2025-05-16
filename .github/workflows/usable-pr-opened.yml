@@ -35,8 +35,7 @@ jobs:
           PR_TITLE: ${{ inputs.PR_TITLE }}
           PR_URL: ${{ inputs.PR_URL }}
           PR_AUTHOR: ${{ inputs.PR_AUTHOR }}
-        run: |
-          # 1. send via webhook and get full JSON
+                run: |
           payload=$(jq -n \
             --arg content "${PR_URL}" \
             --arg thread "$PR_TITLE by \`${PR_AUTHOR}\`" \
@@ -46,18 +45,10 @@ jobs:
               auto_archive_duration: 10080
             }'
           )
-          resp=$(curl -H "Content-Type: application/json" \
-               -X POST \
-               --data "$payload" \
-               "$WEBHOOK_URL?wait=true")
-
-          # 2. extract thread ID
-          thread_id=$(echo "$resp" | jq -r '.thread.id')
-          echo "thread_id=$thread_id" >> $GITHUB_OUTPUT
-
-          # 3. append it to the PR body as a hidden comment
-          new_body="${{ github.event.pull_request.body }}\n\n<!-- discord-thread-id:${thread_id} -->"
-          gh pr edit ${{ github.event.pull_request.number }} --body "$new_body"
+          curl -H "Content-Type: application/json" \
+            -X POST \
+            -d "$payload" \
+            "$WEBHOOK_URL"
 
   merge_success_emoji:
     runs-on: ubuntu-latest
