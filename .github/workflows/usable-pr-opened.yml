@@ -74,9 +74,9 @@ jobs:
         env:
           BOT_TOKEN: ${{ secrets.DISCORD_BOT_TOKEN }}
           CHANNEL_ID: ${{ inputs.DISCORD_CHANNEL_ID }}
-          THREAD_NAME: "${{ inputs.PR_TITLE }} by \`${{ inputs.PR_AUTHOR }}\`"
         run: |
           # 1) fetch active threads
+          THREAD_NAME="${{ inputs.PR_TITLE }} by \`${{ inputs.PR_AUTHOR }}\`"
           threads=$(curl -H "Authorization: Bot $BOT_TOKEN" \
             "https://discord.com/api/v10/channels/$CHANNEL_ID/threads/active")
           thread_id=$(echo "$threads" | jq -r \
