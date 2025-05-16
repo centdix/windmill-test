@@ -5,6 +5,7 @@ on:
     types:
       - opened
       - ready_for_review
+      - merged
 
 jobs:
   call_reusable_workflow:
@@ -14,5 +15,15 @@ jobs:
       PR_TITLE: ${{ github.event.pull_request.title }}
       PR_URL: ${{ github.event.pull_request.html_url }}
       PR_AUTHOR: ${{ github.event.pull_request.user.login }}
+      PR_STATUS: opened
     secrets:
       DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+
+  merge_success_emoji:
+    if: github.event.pull_request.merged == true
+    uses: ./.github/workflows/usable-pr-opened.yml
+    with:
+      PR_STATUS: "merged"
+      DISCORD_CHANNEL_ID: "1371868368755228855"
+    secrets:
+      DISCORD_BOT_TOKEN: ${{ secrets.DISCORD_BOT_TOKEN }}

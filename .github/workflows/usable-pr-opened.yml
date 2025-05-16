@@ -1,4 +1,4 @@
-name: "Notify Discord when a PR is opened"
+name: "Notify Discord when a PR is opened or merged"
 
 on:
   workflow_call:
@@ -15,14 +15,19 @@ on:
         description: "The author of the PR"
         required: true
         type: string
+      PR_STATUS:
+        description: "The status of the PR"
+        required: true
+        type: string
     secrets:
       DISCORD_WEBHOOK_URL:
         description: "Discord Webhook URL"
         required: true
 
 jobs:
-  send_notification:
+  open_thread:
     runs-on: ubuntu-latest
+    if: ${{ inputs.PR_STATUS == 'opened' }}
     steps:
       - name: Send Discord notification and start a thread
         env:
@@ -31,6 +36,7 @@ jobs:
           PR_URL: ${{ inputs.PR_URL }}
           PR_AUTHOR: ${{ inputs.PR_AUTHOR }}
         run: |
+          # 1. send via webhook and get full JSON
           payload=$(jq -n \
             --arg content "${PR_URL}" \
             --arg thread "$PR_TITLE by \`${PR_AUTHOR}\`" \
@@ -40,7 +46,41 @@ jobs:
               auto_archive_duration: 10080
             }'
           )
-          curl -H "Content-Type: application/json" \
+          resp=$(curl -H "Content-Type: application/json" \
                -X POST \
                --data "$payload" \
-               "$WEBHOOK_URL"
+               "$WEBHOOK_URL?wait=true")
+
+          # 2. extract thread ID
+          thread_id=$(echo "$resp" | jq -r '.thread.id')
+          echo "thread_id=$thread_id" >> $GITHUB_OUTPUT
+
+          # 3. append it to the PR body as a hidden comment
+          new_body="${{ github.event.pull_request.body }}\n\n<!-- discord-thread-id:${thread_id} -->"
+          gh pr edit ${{ github.event.pull_request.number }} --body "$new_body"
+
+  merge_success_emoji:
+    runs-on: ubuntu-latest
+    if: ${{ inputs.PR_STATUS == 'merged' }}
+    steps:
+      - name: React
+        env:
+          BOT_TOKEN: ${{ secrets.DISCORD_BOT_TOKEN }}
+          CHANNEL_ID: ${{ inputs.DISCORD_CHANNEL_ID }}
+          THREAD_NAME: "${{ inputs.PR_TITLE }} by \`${{ inputs.PR_AUTHOR }}\`"
+        run: |
+          # 1) fetch active threads
+          threads=$(curl -H "Authorization: Bot $BOT_TOKEN" \
+            "https://discord.com/api/v10/channels/$CHANNEL_ID/threads/active")
+          thread_id=$(echo "$threads" | jq -r \
+            --arg T "$THREAD_NAME" '.threads[] | select(.name==$T) | .id')
+
+          # 2) get the first message in that thread
+          first_msg=$(curl -H "Authorization: Bot $BOT_TOKEN" \
+            "https://discord.com/api/v10/channels/$thread_id/messages?limit=1")
+          message_id=$(echo "$first_msg" | jq -r '.[0].id')
+
+          # 3) add the ✅ reaction
+          curl -X PUT \
+            -H "Authorization: Bot $BOT_TOKEN" \
+            "https://discord.com/api/v10/channels/$thread_id/messages/$message_id/reactions/%E2%9C%85/@me"
