@@ -78,7 +78,7 @@
 				lightMode ? 'bg-surface-inverse' : 'bg-surface',
 				invisible ? 'opacity-0' : ''
 			)}
-			on:click
+			on:click={close}
 		>
 			<div class="py-1" style="max-height: {maxHeight}px; ">
 				<slot {item} />
