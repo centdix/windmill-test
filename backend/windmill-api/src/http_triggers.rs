@@ -997,13 +997,24 @@ async fn route_job(
             let raw_payload = args
                 .extra
                 .as_ref()
-                .and_then(|extra| {
-                    extra
-                        .get("raw_string")
-                        .and_then(|value| Some(value.to_string()))
-                        .and_then(|raw_payload| Some(serde_json::from_str::<String>(&raw_payload)))
+                .and_then(|extra| extra.get("raw_string"))
+                .map(|value| {
+                    let raw_payload_str = value.get().to_owned();
+                    match serde_json::from_str::<String>(&raw_payload_str) {
+                        Ok(s) => Ok(s), // Successfully deserialized JSON string
+                        Err(e) => {
+                            // If from_str failed due to "invalid type: map" or "invalid type: array",
+                            // it means raw_payload_str was a JSON object/array string.
+                            // In this specific scenario, we assume this string IS the raw payload.
+                            if e.is_data() && (raw_payload_str.starts_with('{') || raw_payload_str.starts_with('[')) {
+                                Ok(raw_payload_str)
+                            } else {
+                                Err(e) // Otherwise, it's a different serde error
+                            }
+                        }
+                    }
                 })
-                .transpose()
+                .transpose() // Option<Result<String, serde_json::Error>> to Result<Option<String>, serde_json::Error>
                 .map_err(|e| {
                     windmill_common::error::Error::SerdeJson { location: e.to_string(), error: e }
                         .into_response()
