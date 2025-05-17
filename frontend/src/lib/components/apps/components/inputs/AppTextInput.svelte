@@ -66,9 +66,6 @@
 		}
 	}
 
-	let initialHandleDefault = true
-	$: handleDefault(resolvedConfig.defaultValue)
-
 	$: value, onValueChange()
 
 	function onValueChange() {
@@ -84,16 +81,6 @@
 		if (onChange) {
 			onChange.forEach((id) => $runnableComponents?.[id]?.cb?.forEach((cb) => cb()))
 		}
-	}
-
-	function handleDefault(defaultValue: string | undefined) {
-		if (initialHandleDefault) {
-			initialHandleDefault = false
-			if (value != undefined && value != '') {
-				return
-			}
-		}
-		value = defaultValue
 	}
 
 	let css = initCss($app.css?.[appCssKey], customCss)
