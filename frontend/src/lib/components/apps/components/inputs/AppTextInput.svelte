@@ -152,7 +152,7 @@
 		{customCss}
 		{key}
 		bind:css={css[key]}
-		componentStyle={$app.css?.textinputcomponent}
+		componentStyle={$app.css?.[appCssKey]}
 	/>
 {/each}
 
