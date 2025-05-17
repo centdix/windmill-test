@@ -18,10 +18,11 @@ use crate::{
     },
     handle_child, AuthedClient, DISABLE_NSJAIL, DISABLE_NUSER, NSJAIL_PATH, PATH_ENV, PROXY_ENVS,
 };
+use std::path::Path;
 
 const NSJAIL_CONFIG_RUN_NU_CONTENT: &str = include_str!("../nsjail/run.nu.config.proto");
 lazy_static::lazy_static! {
-    static ref NU_PATH: String = std::env::var("NU_PATH").unwrap_or_else(|_| "/usr/bin/nu".to_string());
+    static ref NU_PATH: String = std::env::var("NU_PATH").unwrap_or_else(|_| "nu".to_string());
     // TODO(v1):
     // static ref PLUGIN_USE_RE: Regex = Regex::new(r#"(?:plugin use )(?<plugin>.*)"#).unwrap();
 }
@@ -233,7 +234,54 @@ async fn run<'a>(
 ) -> Result<(), Error> {
     let reserved_variables =
         get_reserved_variables(job, &client.token, conn, parent_runnable_path.clone()).await?;
+
     let child = if !cfg!(windows) && !*DISABLE_NSJAIL {
+        // Helper function to resolve NU_PATH to an absolute path for nsjail
+        // This is important because nsjail's mount `src` needs to be a concrete path on the host.
+        fn get_absolute_nu_path_for_nsjail(configured_nu_path_str: &str, search_env_paths: &str) -> String {
+            let path = Path::new(configured_nu_path_str);
+            
+            // If already absolute, try to canonicalize but use original if fails
+            if path.is_absolute() {
+                return path.canonicalize().map_or_else(|_| configured_nu_path_str.to_string(), |p| p.to_string_lossy().into_owned());
+            }
+        
+            // Not absolute. Check if it contains separators (e.g., "relative/path/to/nu")
+            // On Windows, MAIN_SEPARATOR is '\', but paths can contain '/'. So check both.
+            if configured_nu_path_str.contains(std::path::MAIN_SEPARATOR) || configured_nu_path_str.contains('/') {
+                // It's a relative path. Make it absolute based on current working directory.
+                if let Ok(cwd) = std::env::current_dir() {
+                    let abs_path = cwd.join(path);
+                    // Attempt to canonicalize, fallback to the joined path if canonicalization fails
+                    return abs_path.canonicalize().map_or_else(|_| abs_path.to_string_lossy().into_owned(), |p| p.to_string_lossy().into_owned());
+                } else {
+                    // Cannot get CWD, fallback to using the relative path as is (less ideal for nsjail)
+                    return configured_nu_path_str.to_string();
+                }
+            }
+        
+            // Not absolute and no separators (e.g., "nu"). Search in PATH.
+            for dir_str in search_env_paths.split(std::path::PATH_SEPARATOR) {
+                if dir_str.is_empty() { continue; } // Skip empty paths that can result from e.g. "PATH=:/bin"
+                let potential_path = Path::new(dir_str).join(configured_nu_path_str);
+                // Check if it's a file; a more thorough check would be `is_executable` if available/easy.
+                if potential_path.is_file() { 
+                    if let Ok(abs_path) = potential_path.canonicalize() {
+                        return abs_path.to_string_lossy().into_owned();
+                    } else if potential_path.exists() { // Fallback if canonicalize fails but path exists
+                         return potential_path.to_string_lossy().into_owned();
+                    }
+                }
+            }
+            
+            // Fallback: if not found in PATH or other cases, return the original configured string.
+            // If this was "nu" (the default), nsjail will likely fail to mount it,
+            // which is an indication of misconfiguration or missing 'nu' executable.
+            configured_nu_path_str.to_string()
+        }
+
+        let nu_abs_path_for_nsjail = get_absolute_nu_path_for_nsjail(NU_PATH.as_str(), PATH_ENV.as_str());
+
         append_logs(
             &job.id,
             &job.workspace_id,
@@ -247,7 +295,7 @@ async fn run<'a>(
             "run.config.proto",
             &NSJAIL_CONFIG_RUN_NU_CONTENT
                 .replace("{JOB_DIR}", job_dir)
-                .replace("{NU_PATH}", &NU_PATH)
+                .replace("{NU_PATH}", &nu_abs_path_for_nsjail)
                 .replace("{SHARED_MOUNT}", &shared_mount)
                 .replace("{CLONE_NEWUSER}", &(!*DISABLE_NUSER).to_string()),
         )?;
