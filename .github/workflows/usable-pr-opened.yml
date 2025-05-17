@@ -21,6 +21,9 @@ on:
       PR_NUMBER:
         description: "The number of the PR"
         type: string
+      DISCORD_GUILD_ID:
+        description: "The Discord guild ID"
+        type: string
     secrets:
       DISCORD_WEBHOOK_URL:
         description: "Discord Webhook URL"
