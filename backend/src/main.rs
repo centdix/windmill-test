@@ -249,8 +249,32 @@ async fn cache_hub_scripts(file_path: Option<String>) -> anyhow::Result<()> {
     Ok(())
 }
 
+use std::process::Command;
+
 async fn windmill_main() -> anyhow::Result<()> {
     dotenv::dotenv().ok();
+
+    if let Ok(init_script) = std::env::var("INIT_SCRIPT") {
+        if !init_script.is_empty() {
+            tracing::info!("Executing INIT_SCRIPT: {}", init_script);
+            match Command::new("sh").arg("-c").arg(&init_script).status() {
+                Ok(status) => {
+                    if status.success() {
+                        tracing::info!("INIT_SCRIPT executed successfully.");
+                    } else {
+                        tracing::error!(
+                            "INIT_SCRIPT failed with status: {:?}. Script: {}",
+                            status.code(),
+                            init_script
+                        );
+                    }
+                }
+                Err(e) => {
+                    tracing::error!("Failed to execute INIT_SCRIPT: {}. Script: {}", e, init_script);
+                }
+            }
+        }
+    }
 
     if std::env::var("RUST_LOG").is_err() {
         std::env::set_var("RUST_LOG", "info")
