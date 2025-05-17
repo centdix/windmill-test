@@ -70,20 +70,38 @@ const p = {
       if (args.importer?.startsWith(cdirNodeModules)) {
         return undefined;
       }
+
+      // Handle absolute HTTP/HTTPS URLs
+      if (args.path.startsWith("http://") || args.path.startsWith("https://")) {
+        return {
+          path: args.path,
+          external: true, // Tell Bun to fetch this URL itself
+        };
+      }
+
+      // Existing logic for local imports:
       const file_path =
         args.importer == "./main.ts" || args.importer == resolve("./main.ts")
           ? current_path
-          : args.importer.replace(cdir + "/", "");
+          : args.importer.replace(cdir + "/", ""); // This is the workspace path of the importer
 
-      const isRelative = !args.path.startsWith("/");
+      const isRelative = !args.path.startsWith("/"); // True for "./foo", "../foo", "foo" (relative to importer). False for "/foo" (relative to workspace root).
 
       let endExt = args.path.endsWith(".ts") ? "" : ".ts";
+      // For local paths starting with "/", remove the leading slash for the backend URL segment.
+      const localAbsolutePathSegment = args.path.startsWith("/") ? args.path.substring(1) : args.path;
+
       const url = isRelative
         ? `${base_internal_url}/api/w/${w_id}/scripts/raw_unpinned/p/${file_path}/../${args.path}${endExt}`
-        : `${base_internal_url}/api/w/${w_id}/scripts/raw_unpinned/p/${args.path}${endExt}`;
+        : `${base_internal_url}/api/w/${w_id}/scripts/raw_unpinned/p/${localAbsolutePathSegment}${endExt}`;
+      
+      // The `file` variable is the path to the .url meta-file created in the job directory.
+      // It should be resolved relative to `cdir` (the job directory).
+      // For "isRelative = false" cases (args.path starts with "/"), use localAbsolutePathSegment.
       const file = isRelative
-        ? resolve("./" + file_path + "/../" + args.path + ".url")
-        : resolve("./" + args.path + ".url");
+        ? resolve(cdir, dirname(file_path), args.path + ".url") // Path relative to importer's directory within workspace structure mirrored in cdir
+        : resolve(cdir, localAbsolutePathSegment + ".url"); // Path relative to cdir root, mirroring workspace root
+
       mkdirSync(dirname(file), { recursive: true });
       writeFileSync(file, url);
       return {
