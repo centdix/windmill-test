@@ -172,7 +172,8 @@
 			on:pointerdown|stopPropagation={(e) =>
 				!$connectingInput.opened && selectId(e, id, selectedComponent, $app)}
 			on:keydown|stopPropagation
-			bind:value
+			value={value ?? ''}
+			on:input={(e) => (value = e.currentTarget.value)}
 			placeholder={resolvedConfig.placeholder}
 			disabled={resolvedConfig.disabled}
 		></textarea>
@@ -200,7 +201,8 @@
 						on:keydown|stopPropagation
 						type="password"
 						autocomplete="new-password"
-						bind:value
+						value={value ?? ''}
+						on:input={(e) => (value = e.currentTarget.value)}
 						placeholder={resolvedConfig.placeholder}
 						disabled={resolvedConfig.disabled}
 					/>
@@ -216,7 +218,8 @@
 							!$connectingInput.opened && selectId(e, id, selectedComponent, $app)}
 						on:keydown|stopPropagation
 						type="text"
-						bind:value
+						value={value ?? ''}
+						on:input={(e) => (value = e.currentTarget.value)}
 						placeholder={resolvedConfig.placeholder}
 						disabled={resolvedConfig.disabled}
 					/>
@@ -232,7 +235,8 @@
 							!$connectingInput.opened && selectId(e, id, selectedComponent, $app)}
 						on:keydown|stopPropagation
 						type="email"
-						bind:value
+						value={value ?? ''}
+						on:input={(e) => (value = e.currentTarget.value)}
 						placeholder={resolvedConfig.placeholder}
 						disabled={resolvedConfig.disabled}
 					/>
