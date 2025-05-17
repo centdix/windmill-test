@@ -70,6 +70,10 @@ const p = {
       if (args.importer?.startsWith(cdirNodeModules)) {
         return undefined;
       }
+      // If the path is an absolute HTTP/HTTPS URL, let Bun handle it directly.
+      if (args.path.startsWith("https://") || args.path.startsWith("http://")) {
+        return undefined;
+      }
       const file_path =
         args.importer == "./main.ts" || args.importer == resolve("./main.ts")
           ? current_path
