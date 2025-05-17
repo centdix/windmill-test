@@ -1520,7 +1520,7 @@ mod tests {
                 constant: Default::default(),
                 exponential: ExponentialDelay {
                     attempts: 0,
-                    multiplier: 1,
+                    multiplier: 1.0,
                     seconds: 123,
                     random_factor: None
                 }
@@ -1543,7 +1543,7 @@ mod tests {
             constant: ConstantDelay::default(),
             exponential: ExponentialDelay {
                 attempts: 3,
-                multiplier: 4,
+                multiplier: 4.0,
                 seconds: 3,
                 random_factor: None,
             },
@@ -1569,7 +1569,7 @@ mod tests {
             constant: ConstantDelay { attempts: 2, seconds: 4 },
             exponential: ExponentialDelay {
                 attempts: 2,
-                multiplier: 1,
+                multiplier: 1.0,
                 seconds: 3,
                 random_factor: None,
             },

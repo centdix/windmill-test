@@ -160,21 +160,31 @@ impl Retry {
             Some(Duration::from_secs(constant.seconds as u64))
         } else if previous_attempts - constant.attempts < exponential.attempts {
             let exp = previous_attempts.saturating_add(1) as u32;
-            let mut secs = exponential.multiplier * exponential.seconds.saturating_pow(exp);
+            let base_seconds_pow_exp = exponential.seconds.saturating_pow(exp) as f32;
+            let mut secs: f32 = exponential.multiplier * base_seconds_pow_exp;
+
             if let Some(random_factor) = exponential.random_factor {
                 if random_factor > 0 {
-                    let random_component =
-                        rand::rng().random_range(0..(std::cmp::min(random_factor, 100) as u16));
-                    secs = match rand::rng().random_bool(1.0 / 2.0) {
-                        true => secs.saturating_add(secs * random_component / 100),
-                        false => secs.saturating_sub(secs * random_component / 100),
+                    // random_factor is a percentage, e.g., 20 means +/- up to 20%
+                    // We generate a random percentage value up to random_factor.
+                    let max_percentage_jitter = std::cmp::min(random_factor, 100) as u16; // random_factor is positive i8 here
+                    let random_percentage_val =
+                        rand::thread_rng().gen_range(0..max_percentage_jitter) as f32;
+                    let jitter_fraction = random_percentage_val / 100.0;
+                    let jitter_amount = secs * jitter_fraction;
+
+                    secs = if rand::thread_rng().gen_bool(0.5) {
+                        secs + jitter_amount
+                    } else {
+                        secs - jitter_amount
                     };
+                    secs = secs.max(0.0); // Ensure secs is not negative
                 }
             }
             if !silent {
                 tracing::warn!("Rescheduling job in {} seconds due to failure", secs);
             }
-            Some(Duration::from_secs(secs as u64))
+            Some(Duration::from_secs_f32(secs))
         } else {
             None
         }
@@ -209,14 +219,14 @@ pub struct ConstantDelay {
 #[serde(default)]
 pub struct ExponentialDelay {
     pub attempts: u32,
-    pub multiplier: u16,
+    pub multiplier: f32,
     pub seconds: u16,
     pub random_factor: Option<i8>, // percentage, defaults to 0 for no jitter
 }
 
 impl Default for ExponentialDelay {
     fn default() -> Self {
-        Self { attempts: 0, multiplier: 1, seconds: 0, random_factor: None }
+        Self { attempts: 0, multiplier: 1.0, seconds: 0, random_factor: None }
     }
 }
 
