@@ -18,6 +18,9 @@ on:
       DISCORD_CHANNEL_ID:
         description: "The Discord channel ID"
         type: string
+      PR_NUMBER:
+        description: "The number of the PR"
+        type: string
     secrets:
       DISCORD_WEBHOOK_URL:
         description: "Discord Webhook URL"
