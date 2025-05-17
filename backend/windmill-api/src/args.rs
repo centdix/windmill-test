@@ -28,6 +28,9 @@ pub struct WebhookArgs {
     pub args: PushArgsOwned,
     pub multipart: Option<Multipart>,
     pub wrap_body: Option<bool>,
+    // Add a field to store the raw body string, primarily for signature validation purposes.
+    // This field will be populated when the body is read as a string (e.g., for JSON, text, urlencoded).
+    pub raw_body_string: Option<String>,
 }
 
 impl WebhookArgs {
@@ -197,30 +200,42 @@ where
             if use_raw {
                 extra.insert("raw_string".to_string(), to_raw_value(&"".to_string()));
             }
-            let mut args = HashMap::new();
+            let mut args_map = HashMap::new();
             if wrap_body {
-                args.insert("body".to_string(), to_raw_value(&serde_json::json!({})));
+                args_map.insert("body".to_string(), to_raw_value(&serde_json::json!({})));
             }
             return Ok(WebhookArgs {
-                args: PushArgsOwned { extra: Some(extra), args: args },
-                ..Default::default()
+                args: PushArgsOwned { extra: Some(extra), args: args_map },
+                multipart: None,
+                wrap_body: Some(wrap_body),
+                raw_body_string: Some("".to_string()),
             });
         }
-        let str = String::from_utf8(bytes.to_vec())
+        let str_payload = String::from_utf8(bytes.to_vec())
             .map_err(|e| Error::BadRequest(format!("invalid utf8: {}", e)).into_response())?;
 
-        PushArgsOwned::from_json(extra, use_raw, wrap_body, str)
+        PushArgsOwned::from_json(extra, use_raw, wrap_body, str_payload.clone())
             .await
-            .map(|args| WebhookArgs { args, ..Default::default() })
+            .map(|parsed_args| WebhookArgs {
+                args: parsed_args,
+                multipart: None,
+                wrap_body: Some(wrap_body),
+                raw_body_string: Some(str_payload),
+            })
     } else if content_type
         .unwrap()
         .starts_with("application/cloudevents+json")
     {
-        let str = req_to_string(request, _state).await?;
+        let str_payload = req_to_string(request, _state).await?;
 
-        PushArgsOwned::from_ce_json(extra, use_raw, str)
+        PushArgsOwned::from_ce_json(extra, use_raw, str_payload.clone())
             .await
-            .map(|args| WebhookArgs { args, ..Default::default() })
+            .map(|parsed_args| WebhookArgs {
+                args: parsed_args,
+                multipart: None,
+                wrap_body: Some(wrap_body), // Assuming wrap_body logic applies or is adjusted in from_ce_json
+                raw_body_string: Some(str_payload),
+            })
     } else if content_type
         .unwrap()
         .starts_with("application/cloudevents-batch+json")
@@ -230,11 +245,13 @@ where
                 .into_response(),
         )
     } else if content_type.unwrap().starts_with("text/plain") {
-        let str = req_to_string(request, _state).await?;
-        extra.insert("raw_string".to_string(), to_raw_value(&str));
+        let str_payload = req_to_string(request, _state).await?;
+        extra.insert("raw_string".to_string(), to_raw_value(&str_payload));
         Ok(WebhookArgs {
             args: PushArgsOwned { extra: Some(extra), args: HashMap::new() },
-            ..Default::default()
+            multipart: None,
+            wrap_body: Some(wrap_body),
+            raw_body_string: Some(str_payload),
         })
     } else if content_type
         .unwrap()
@@ -244,43 +261,49 @@ where
             .await
             .map_err(IntoResponse::into_response)?;
 
+        let raw_body_str = String::from_utf8(bytes.to_vec())
+            .map_err(|e| Error::BadRequest(format!("invalid utf8: {}", e)).into_response())?;
+
         if use_raw {
-            let raw_string = String::from_utf8(bytes.to_vec())
-                .map_err(|e| Error::BadRequest(format!("invalid utf8: {}", e)).into_response())?;
-            extra.insert("raw_string".to_string(), to_raw_value(&raw_string));
+            extra.insert("raw_string".to_string(), to_raw_value(&raw_body_str));
         }
 
-        let payload: HashMap<String, Option<String>> = serde_urlencoded::from_bytes(&bytes)
+        let form_payload: HashMap<String, Option<String>> = serde_urlencoded::from_bytes(&bytes)
             .map_err(|e| {
                 Error::BadRequest(format!("invalid urlencoded data: {}", e)).into_response()
             })?;
-        let payload = payload
+        let parsed_payload = form_payload
             .into_iter()
             .map(|(k, v)| (k, to_raw_value(&v)))
             .collect::<HashMap<_, _>>();
 
         return Ok(WebhookArgs {
-            args: PushArgsOwned { extra: Some(extra), args: payload },
-            ..Default::default()
+            args: PushArgsOwned { extra: Some(extra), args: parsed_payload },
+            multipart: None,
+            wrap_body: Some(wrap_body),
+            raw_body_string: Some(raw_body_str),
         });
     } else if content_type.unwrap().starts_with("application/xml")
         || content_type.unwrap().starts_with("text/xml")
     {
-        let str = req_to_string(request, _state).await?;
-        extra.insert("raw_string".to_string(), to_raw_value(&str));
+        let str_payload = req_to_string(request, _state).await?;
+        extra.insert("raw_string".to_string(), to_raw_value(&str_payload));
         Ok(WebhookArgs {
             args: PushArgsOwned { extra: Some(extra), args: HashMap::new() },
-            ..Default::default()
+            multipart: None,
+            wrap_body: Some(wrap_body),
+            raw_body_string: Some(str_payload),
         })
     } else if content_type.unwrap().starts_with("multipart/form-data") {
-        let multipart = Multipart::from_request(request, _state)
+        let multipart_data = Multipart::from_request(request, _state)
             .await
             .map_err(IntoResponse::into_response)?;
 
         Ok(WebhookArgs {
             args: PushArgsOwned { extra: Some(extra), args: HashMap::new() },
-            multipart: Some(multipart),
+            multipart: Some(multipart_data),
             wrap_body: Some(wrap_body),
+            raw_body_string: None, // Multipart form data does not have a single raw body string
         })
     } else {
         Err(StatusCode::UNSUPPORTED_MEDIA_TYPE.into_response())
