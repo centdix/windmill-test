@@ -149,7 +149,7 @@
 {#each Object.keys(css ?? {}) as key (key)}
 	<ResolveStyle
 		{id}
-		{customCss}
+		customCss={customCss ?? {}}
 		{key}
 		bind:css={css[key]}
 		componentStyle={$app.css?.[appCssKey]?.[key]}
