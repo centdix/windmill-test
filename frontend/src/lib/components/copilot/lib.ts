@@ -86,7 +86,10 @@ export const PROVIDER_COMPLETION_CONFIG_MAP: Record<AIProvider, ChatCompletionCr
 	groq: DEFAULT_COMPLETION_CONFIG,
 	openrouter: DEFAULT_COMPLETION_CONFIG,
 	togetherai: DEFAULT_COMPLETION_CONFIG,
-	deepseek: DEFAULT_COMPLETION_CONFIG,
+	deepseek: {
+		...DEFAULT_COMPLETION_CONFIG,
+		seed: undefined
+	},
 	customai: DEFAULT_COMPLETION_CONFIG,
 	googleai: {
 		...DEFAULT_COMPLETION_CONFIG,
