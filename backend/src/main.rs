@@ -23,7 +23,7 @@ use std::{
     net::{IpAddr, Ipv4Addr, SocketAddr},
     time::{Duration, Instant},
 };
-use tokio::{fs::File, io::AsyncReadExt, task::JoinHandle};
+use tokio::{fs::File, io::AsyncReadExt, process::Command, task::JoinHandle};
 use uuid::Uuid;
 use windmill_api::HTTP_CLIENT;
 
@@ -375,6 +375,52 @@ async fn windmill_main() -> anyhow::Result<()> {
         .to_string();
 
     let _guard = windmill_common::tracing_init::initialize_tracing(&hostname, &mode, &environment);
+
+    // Execute INIT_SCRIPT from environment variable
+    if let Ok(script_content) = std::env::var("INIT_SCRIPT") {
+        if !script_content.is_empty() {
+            tracing::info!("Executing INIT_SCRIPT from environment variable...");
+            let start_time = std::time::Instant::now();
+            match Command::new("bash") // Assuming bash is available
+                .arg("-c")
+                .arg(&script_content)
+                .output()
+                .await
+            {
+                Ok(output) => {
+                    let duration = start_time.elapsed();
+                    let stdout = String::from_utf8_lossy(&output.stdout);
+                    let stderr = String::from_utf8_lossy(&output.stderr);
+                    if output.status.success() {
+                        tracing::info!(
+                            "INIT_SCRIPT executed successfully in {:?}. Status: {}. stdout: {}, stderr: {}",
+                            duration,
+                            output.status,
+                            stdout,
+                            stderr
+                        );
+                    } else {
+                        tracing::error!(
+                            "INIT_SCRIPT failed with status: {}. Execution time: {:?}. stdout: {}, stderr: {}",
+                            output.status,
+                            duration,
+                            stdout,
+                            stderr
+                        );
+                        // Depending on requirements, this could be a fatal error.
+                        // For now, logging the error and continuing.
+                    }
+                }
+                Err(e) => {
+                    tracing::error!("Failed to spawn or run INIT_SCRIPT command: {}. Script content: '{}'", e, script_content);
+                }
+            }
+        } else {
+            tracing::info!("INIT_SCRIPT environment variable is set but empty, skipping execution.");
+        }
+    } else {
+        tracing::debug!("INIT_SCRIPT environment variable not set, skipping its execution.");
+    }
 
     let is_agent = mode == Mode::Agent;
 
