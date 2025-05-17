@@ -26,5 +26,7 @@ jobs:
     with:
       PR_STATUS: "merged"
       DISCORD_CHANNEL_ID: "1371868368755228855"
+      DISCORD_GUILD_ID: "1371864518640275609"
+      PR_NUMBER: ${{ github.event.pull_request.number }}
     secrets:
       DISCORD_BOT_TOKEN: ${{ secrets.DISCORD_BOT_TOKEN }}

@@ -59,18 +59,32 @@ jobs:
         env:
           BOT_TOKEN: ${{ secrets.DISCORD_BOT_TOKEN }}
           CHANNEL_ID: ${{ inputs.DISCORD_CHANNEL_ID }}
+          GUILD_ID: ${{ inputs.DISCORD_GUILD_ID }}
+          PR_NUMBER: ${{ inputs.PR_NUMBER }}
         run: |
-          # 1) fetch active threads
-          THREAD_NAME="${{ inputs.PR_TITLE }} by \`${{ inputs.PR_AUTHOR }}\`"
-          threads=$(curl -H "Authorization: Bot $BOT_TOKEN" \
-            "https://discord.com/api/v10/channels/$CHANNEL_ID/threads/active")
-          thread_id=$(echo "$threads" | jq -r \
-            --arg T "$THREAD_NAME" '.threads[] | select(.name==$T) | .id')
-
+          # 1) get PR thread
+          threads=$(curl -H "Authorization: Bot $BOT_TOKEN" "https://discord.com/api/v10/guilds/${GUILD_ID}/threads/active")
+          thread_id=$(
+            echo "$threads" \
+              | jq -r --arg cid "$CHANNEL_ID" \
+                    --arg pref "#${PR_NUMBER}:" \
+                '.threads[]
+                | select(.parent_id == $cid and (.name | startswith($pref)))
+                | .id'
+          )
+          if [ -z "$thread_id" ]; then
+            echo "Thread not found"
+            exit 1
+          fi
           # 2) get the first message in that thread
-          first_msg=$(curl -H "Authorization: Bot $BOT_TOKEN" \
+          messages=$(curl -H "Authorization: Bot $BOT_TOKEN" \
             "https://discord.com/api/v10/channels/$thread_id/messages?limit=1")
-          message_id=$(echo "$first_msg" | jq -r '.[0].id')
+          message_id=$(echo "$messages" | jq -r '.[-1].id')
+
+          if [ -z "$message_id" ]; then
+            echo "Message not found"
+            exit 1
+          fi
 
           # 3) add the ✅ reaction
           curl -X PUT \
