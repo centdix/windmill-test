@@ -57,6 +57,7 @@ pub struct Arg {
     pub name: String,
     pub otyp: Option<String>,
     pub typ: Typ,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub default: Option<serde_json::Value>,
     pub has_default: bool,
     pub oidx: Option<i32>,
