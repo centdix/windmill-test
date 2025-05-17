@@ -66,9 +66,6 @@
 		}
 	}
 
-	let initialHandleDefault = true
-	$: handleDefault(resolvedConfig.defaultValue)
-
 	$: value, onValueChange()
 
 	function onValueChange() {
@@ -86,17 +83,42 @@
 		}
 	}
 
-	function handleDefault(defaultValue: string | undefined) {
-		if (initialHandleDefault) {
-			initialHandleDefault = false
-			if (value != undefined && value != '') {
-				return
+	let css = initCss($app.css?.[appCssKey], customCss);
+	// Ensure that all properties of css are valid ComponentCssProperty objects
+	// to prevent type errors with ResolveStyle binding.
+	if (css && typeof css === 'object') { // Guard against css being null/undefined or not an object
+		for (const key_ in css) {
+			if (Object.prototype.hasOwnProperty.call(css, key_)) { // Ensure key is own property
+				const val = css[key_];
+				if (typeof val === 'string') {
+					css[key_] = { class: val, style: '' };
+				} else if (val && typeof val === 'object') {
+					// Value is an object. Ensure it's a valid ComponentCssProperty.
+					const newCssProp: { class?: string; style?: string; evalClass?: RichConfiguration } = {};
+					if (val.class !== undefined) {
+						newCssProp.class = typeof val.class === 'string' ? val.class : '';
+					}
+					if (val.style !== undefined) {
+						newCssProp.style = typeof val.style === 'string' ? val.style : '';
+					}
+					if (val.evalClass !== undefined) {
+						// Assuming val.evalClass is correctly structured if present
+						newCssProp.evalClass = val.evalClass as RichConfiguration;
+					}
+					css[key_] = newCssProp;
+				} else { // Handles null, undefined, number, boolean, etc.
+					css[key_] = { class: '', style: '' };
+				}
 			}
 		}
-		value = defaultValue
+	} else if (css !== undefined && css !== null) {
+		// if css is a primitive type (e.g. string), this scenario is unexpected for a style map.
+		// To be safe and ensure `css` is an object for the #each loop, reassign to empty object.
+		// However, initCss is expected to return an object or null/undefined.
+		console.warn('AppTextInput: `css` was expected to be an object, null, or undefined, but received:', css);
+		css = {};
 	}
-
-	let css = initCss($app.css?.[appCssKey], customCss)
+	// If css was initially null or undefined, it remains so, and `?? {}` in #each handles it.
 
 	$: classInput = twMerge(
 		'windmillapp w-full py-1.5 px-2 text-sm',
@@ -152,7 +174,7 @@
 		{customCss}
 		{key}
 		bind:css={css[key]}
-		componentStyle={$app.css?.textinputcomponent}
+		componentStyle={$app.css?.[appCssKey]}
 	/>
 {/each}
 
