@@ -1,4 +1,4 @@
-use std::{collections::HashMap, process::Stdio};
+use std::{collections::HashMap, path::Path, process::Stdio};
 
 use itertools::Itertools;
 use serde_json::value::RawValue;
@@ -21,7 +21,16 @@ use crate::{
 
 const NSJAIL_CONFIG_RUN_NU_CONTENT: &str = include_str!("../nsjail/run.nu.config.proto");
 lazy_static::lazy_static! {
-    static ref NU_PATH: String = std::env::var("NU_PATH").unwrap_or_else(|_| "/usr/bin/nu".to_string());
+    static ref NU_PATH: String = std::env::var("NU_PATH").unwrap_or_else(|_| {
+        if Path::new("/usr/local/bin/nu").exists() {
+            "/usr/local/bin/nu".to_string()
+        } else if Path::new("/root/.cargo/bin/nu").exists() {
+            "/root/.cargo/bin/nu".to_string()
+        } else {
+            // Original default
+            "/usr/bin/nu".to_string()
+        }
+    });
     // TODO(v1):
     // static ref PLUGIN_USE_RE: Regex = Regex::new(r#"(?:plugin use )(?<plugin>.*)"#).unwrap();
 }
