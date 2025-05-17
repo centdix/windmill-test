@@ -84,6 +84,20 @@
 	}
 
 	let css = initCss($app.css?.[appCssKey], customCss)
+	// Ensure that all properties of css are valid ComponentCssProperty objects
+	// to prevent type errors with ResolveStyle binding.
+	for (const key_ in css) {
+		const value = css[key_];
+		if (typeof value === 'string') {
+			css[key_] = { class: value, style: '' };
+		} else if (value === null || typeof value !== 'object') {
+			// If null, or not an object (e.g. undefined from a faulty merge, or other primitive)
+			// initialize as a default ComponentCssProperty object.
+			css[key_] = { class: '', style: '' };
+		}
+		// If value is already an object, assume it's compatible,
+		// or ResolveStyle handles its specific structure (e.g. optional class/style).
+	}
 
 	$: classInput = twMerge(
 		'windmillapp w-full py-1.5 px-2 text-sm',
@@ -139,7 +153,7 @@
 		{customCss}
 		{key}
 		bind:css={css[key]}
-		componentStyle={$app.css?.textinputcomponent}
+		componentStyle={$app.css?.[appCssKey]}
 	/>
 {/each}
 
