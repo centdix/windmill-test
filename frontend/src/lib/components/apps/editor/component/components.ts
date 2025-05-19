@@ -2109,7 +2109,7 @@ This is a paragraph.
 				},
 				defaultValue: {
 					type: 'static',
-					value: undefined,
+					value: '',
 					fieldType: 'text'
 				},
 				disabled: {
