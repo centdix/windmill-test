@@ -998,16 +998,8 @@ async fn route_job(
                 .extra
                 .as_ref()
                 .and_then(|extra| {
-                    extra
-                        .get("raw_string")
-                        .and_then(|value| Some(value.to_string()))
-                        .and_then(|raw_payload| Some(serde_json::from_str::<String>(&raw_payload)))
-                })
-                .transpose()
-                .map_err(|e| {
-                    windmill_common::error::Error::SerdeJson { location: e.to_string(), error: e }
-                        .into_response()
-                })?;
+                    extra.get("raw_string").map(|value| value.get().to_string())
+                });
 
             let response = authentication_method
                 .authenticate_http_request(&headers, raw_payload.as_ref())
