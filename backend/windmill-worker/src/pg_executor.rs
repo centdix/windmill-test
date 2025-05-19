@@ -6,7 +6,7 @@ use std::time::Duration;
 
 use anyhow::Context;
 use base64::{engine, Engine as _};
-use chrono::Utc;
+use chrono::{DateTime, FixedOffset, Utc};
 use futures::future::BoxFuture;
 use futures::{FutureExt, TryStreamExt};
 use itertools::Itertools;
@@ -636,19 +636,73 @@ fn convert_val(
         Value::Number(n) => Ok(Box::new(n.as_f64().unwrap())),
         Value::String(s) if arg_t == "uuid" => Ok(Box::new(Uuid::parse_str(s)?)),
         Value::String(s) if arg_t == "date" => {
-            let date =
-                chrono::NaiveDate::parse_from_str(s, "%Y-%m-%dT%H:%M:%S.%3fZ").unwrap_or_default();
-            Ok(Box::new(date))
+            match chrono::NaiveDate::parse_from_str(s, "%Y-%m-%d") {
+                Ok(date) => Ok(Box::new(date)),
+                Err(e) => Err(Error::ExecutionErr(format!(
+                    "Failed to parse string '{}' as date. Expected YYYY-MM-DD format. Error: {}",
+                    s, e
+                ))),
+            }
         }
         Value::String(s) if arg_t == "time" || arg_t == "timetz" => {
-            let time =
-                chrono::NaiveTime::parse_from_str(s, "%Y-%m-%dT%H:%M:%S.%3fZ").unwrap_or_default();
-            Ok(Box::new(time))
+            match chrono::NaiveTime::parse_from_str(s, "%H:%M:%S%.f")
+                .or_else(|_| chrono::NaiveTime::parse_from_str(s, "%H:%M:%S"))
+            {
+                Ok(time) => Ok(Box::new(time)),
+                Err(e) => Err(Error::ExecutionErr(format!(
+                    "Failed to parse string '{}' as time. Expected HH:MM:SS[.fractional] format. Error: {}",
+                    s, e
+                ))),
+            }
         }
-        Value::String(s) if arg_t == "timestamp" || arg_t == "timestamptz" => {
-            let datetime = chrono::NaiveDateTime::parse_from_str(s, "%Y-%m-%dT%H:%M:%S.%3fZ")
-                .unwrap_or_default();
-            Ok(Box::new(datetime))
+        Value::String(s) if arg_t == "timestamptz" => {
+            let parsed_dt = DateTime::parse_from_rfc3339(s)
+                .map(|dt| dt.with_timezone(&Utc))
+                .or_else(|_| {
+                    DateTime::parse_from_str(s, "%Y-%m-%d %H:%M:%S%.f%#z")
+                        .map(|dt| dt.with_timezone(&Utc))
+                })
+                .or_else(|_| {
+                    DateTime::parse_from_str(s, "%Y-%m-%d %H:%M:%S%.f%:z")
+                        .map(|dt| dt.with_timezone(&Utc))
+                })
+                .or_else(|_| {
+                    NaiveDateTime::parse_from_str(s, "%Y-%m-%d %H:%M:%S%.f")
+                        .map(|ndt| DateTime::<Utc>::from_naive_utc_and_offset(ndt, Utc))
+                })
+                .or_else(|_| {
+                    NaiveDateTime::parse_from_str(s, "%Y-%m-%dT%H:%M:%S%.f")
+                        .map(|ndt| DateTime::<Utc>::from_naive_utc_and_offset(ndt, Utc))
+                })
+                .or_else(|_| {
+                    // Try the original specific format, assuming UTC if it parses as NaiveDateTime
+                    NaiveDateTime::parse_from_str(s, "%Y-%m-%dT%H:%M:%S%.3fZ")
+                        .map(|ndt| DateTime::<Utc>::from_naive_utc_and_offset(ndt, Utc))
+                });
+
+            match parsed_dt {
+                Ok(datetime_utc) => Ok(Box::new(datetime_utc)),
+                Err(e) => Err(Error::ExecutionErr(format!(
+                    "Failed to parse string '{}' as timestamptz. Error: {}",
+                    s, e
+                ))),
+            }
+        }
+        Value::String(s) if arg_t == "timestamp" => {
+            let parsed_ndt = NaiveDateTime::parse_from_str(s, "%Y-%m-%d %H:%M:%S%.f")
+                .or_else(|_| NaiveDateTime::parse_from_str(s, "%Y-%m-%dT%H:%M:%S%.f"))
+                .or_else(|_| {
+                    // Try the original specific format
+                    NaiveDateTime::parse_from_str(s, "%Y-%m-%dT%H:%M:%S%.3fZ")
+                });
+
+            match parsed_ndt {
+                Ok(naive_datetime) => Ok(Box::new(naive_datetime)),
+                Err(e) => Err(Error::ExecutionErr(format!(
+                    "Failed to parse string '{}' as timestamp. Error: {}",
+                    s, e
+                ))),
+            }
         }
         Value::String(s) if arg_t == "bytea" => {
             let bytes = engine::general_purpose::STANDARD
