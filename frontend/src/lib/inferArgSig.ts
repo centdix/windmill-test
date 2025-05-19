@@ -130,8 +130,11 @@ export function argSigToJsonSchemaType(
 		) {
 			const properties: Record<string, any> = {}
 			for (const prop of t.list.object) {
-				properties[prop.key] = { description: '', type: '' }
-
+				if (oldS.items?.properties && prop.key in oldS.items.properties) {
+					properties[prop.key] = oldS.items.properties[prop.key]
+				} else {
+					properties[prop.key] = { description: '', type: '' }
+				}
 				argSigToJsonSchemaType(prop.typ, properties[prop.key])
 			}
 
