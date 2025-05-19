@@ -645,10 +645,51 @@ fn convert_val(
                 chrono::NaiveTime::parse_from_str(s, "%Y-%m-%dT%H:%M:%S.%3fZ").unwrap_or_default();
             Ok(Box::new(time))
         }
-        Value::String(s) if arg_t == "timestamp" || arg_t == "timestamptz" => {
-            let datetime = chrono::NaiveDateTime::parse_from_str(s, "%Y-%m-%dT%H:%M:%S.%3fZ")
-                .unwrap_or_default();
-            Ok(Box::new(datetime))
+        Value::String(s) if arg_t == "timestamp" => {
+            // Try parsing as NaiveDateTime (common ISO formats without timezone)
+            // This handles YYYY-MM-DDTHH:MM:SS, YYYY-MM-DDTHH:MM:SS.SSS,
+            // YYYY-MM-DD HH:MM:SS, YYYY-MM-DD HH:MM:SS.SSS
+            if let Ok(dt) = s.parse::<chrono::NaiveDateTime>() {
+                Ok(Box::new(dt))
+            }
+            // If the above fails, it might be a full RFC3339 string with timezone.
+            // Parse it as DateTime<FixedOffset> and convert to NaiveDateTime (in UTC).
+            else if let Ok(dt_with_tz) = s.parse::<chrono::DateTime<chrono::FixedOffset>>() {
+                Ok(Box::new(dt_with_tz.naive_utc()))
+            }
+            // As a last resort, try the very specific format that was originally there,
+            // in case some inputs rely on its exact behavior.
+            else if let Ok(dt) = chrono::NaiveDateTime::parse_from_str(s, "%Y-%m-%dT%H:%M:%S.%3fZ") {
+                Ok(Box::new(dt))
+            }
+            else {
+                Err(Error::ExecutionErr(format!(
+                    "Failed to parse string '{}' as timestamp. Expected a valid ISO 8601 format (e.g., YYYY-MM-DDTHH:MM:SS or YYYY-MM-DD HH:MM:SS, with or without milliseconds, and optionally with a timezone offset for conversion).", s
+                )))
+            }
+        }
+        Value::String(s) if arg_t == "timestamptz" => {
+            // Try parsing as DateTime<Utc> (handles RFC3339 with 'Z')
+            if let Ok(dt) = s.parse::<chrono::DateTime<chrono::Utc>>() {
+                Ok(Box::new(dt))
+            }
+            // Try parsing as DateTime<FixedOffset> (handles RFC3339 with other offsets)
+            else if let Ok(dt) = s.parse::<chrono::DateTime<chrono::FixedOffset>>() {
+                Ok(Box::new(dt.with_timezone(&chrono::Utc)))
+            }
+            // If it's a naive datetime string, try parsing and assume UTC.
+            else if let Ok(dt_naive) = s.parse::<chrono::NaiveDateTime>() {
+                Ok(Box::new(chrono::DateTime::<chrono::Utc>::from_naive_utc_and_offset(dt_naive, chrono::Utc)))
+            }
+            // As a last resort for timestamptz, if it was parsed as NaiveDateTime using the old specific format, convert to UTC.
+            else if let Ok(dt_naive) = chrono::NaiveDateTime::parse_from_str(s, "%Y-%m-%dT%H:%M:%S.%3fZ") {
+                 Ok(Box::new(chrono::DateTime::<chrono::Utc>::from_naive_utc_and_offset(dt_naive, chrono::Utc)))
+            }
+            else {
+                Err(Error::ExecutionErr(format!(
+                    "Failed to parse string '{}' as timestamptz. Expected a valid ISO 8601 format with timezone (e.g., YYYY-MM-DDTHH:MM:SSZ or YYYY-MM-DDTHH:MM:SS+02:00) or a naive datetime to be interpreted as UTC.", s
+                )))
+            }
         }
         Value::String(s) if arg_t == "bytea" => {
             let bytes = engine::general_purpose::STANDARD
