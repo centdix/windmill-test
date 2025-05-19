@@ -532,10 +532,15 @@ fn convert_vec_val(
                 chrono::NaiveTime::parse_from_str(x, "%Y-%m-%dT%H:%M:%S.%3fZ").unwrap_or_default()
             })
         })?)),
-        "timestamp" | "timestamptz" => Ok(Box::new(map_as_single_type(vec, |v| {
-            v.as_str().map(|x| {
-                chrono::NaiveDateTime::parse_from_str(x, "%Y-%m-%dT%H:%M:%S.%3fZ")
-                    .unwrap_or_default()
+        "timestamp" => Ok(Box::new(map_as_single_type(vec, |v| {
+            v.as_str()
+                .and_then(|x| chrono::NaiveDateTime::parse_from_rfc3339(x).ok())
+        })?)),
+        "timestamptz" => Ok(Box::new(map_as_single_type(vec, |v| {
+            v.as_str().and_then(|x| {
+                chrono::DateTime::parse_from_rfc3339(x)
+                    .map(|dt| dt.with_timezone(&chrono::Utc))
+                    .ok()
             })
         })?)),
         "jsonb" | "json" => Ok(Box::new(
