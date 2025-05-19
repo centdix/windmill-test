@@ -122,7 +122,10 @@
 		}
 	}
 
-	let css = initCss($app.css?.multiselectcomponent, customCss)
+	// Ensure css is reactive to changes in $app.css and customCss,
+	// and always an object.
+	$: _rawCss = initCss($app.css?.multiselectcomponent, customCss)
+	$: css = typeof _rawCss === 'object' && _rawCss !== null ? _rawCss : {}
 
 	function setOuterDivStyle(outerDiv: HTMLDivElement, portalRef: HTMLDivElement, style: string) {
 		outerDiv.setAttribute('style', style)
