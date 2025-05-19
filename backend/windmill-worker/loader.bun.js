@@ -16,7 +16,7 @@ const p = {
     const cdir = resolve("./");
     const cdirNoPrivate = cdir.replace(/^\/private/, ""); // for macos
     const filterResolve = new RegExp(
-      `^(?!\\.\/main\\.ts)(?!${cdir}\/main\\.ts)(?!(?:/private)?${cdirNoPrivate}\/wrapper\\.mjs).*\\.ts$`
+      `^(?!\\.\/main\\.ts)(?!${cdir}\/main\\.ts)(?!(?:/private)?${cdirNoPrivate}\/wrapper\\.mjs)(?!https?:\/\/).*\\.ts$`
     );
 
     let cdirNodeModules = `${cdir}/node_modules/`;
