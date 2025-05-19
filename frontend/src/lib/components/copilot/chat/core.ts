@@ -158,7 +158,7 @@ Packages must be made available with a partial cargo.toml by adding the followin
 //! \`\`\`cargo
 //! [dependencies]
 //! anyhow = "1.0.86"
-//! \`\`\'
+//! \`\`\`
 Serde is already included, no need to add it again.
 
 If you want to handle async functions (e.g., using tokio), you need to keep the main function sync and create the runtime inside.
