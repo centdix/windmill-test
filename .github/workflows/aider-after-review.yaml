@@ -81,7 +81,6 @@ jobs:
           REVIEW_COMMENTS=$(gh pr view $PR_NUMBER --json reviews -q '.reviews[] | select(.state == "CHANGES_REQUESTED") | .body' --repo $GITHUB_REPOSITORY)
           REVIEW_BODY_Q=$(printf '%q' "$REVIEW_BODY")
 
-          # Update query to get review comments from all review types, not just "CHANGES_REQUESTED"
           ALL_REVIEW_COMMENTS=$(gh api \
             -H "Accept: application/vnd.github+json" \
             -H "X-GitHub-Api-Version: 2022-11-28" \
@@ -89,9 +88,11 @@ jobs:
             | jq '[.[] | {diff_hunk: .diff_hunk, path: .path, body: .body}]')
 
           BASE_PROMPT="Fix the following issues in the PR based on the review feedback. The review body is prepended with REVIEW. The review comments are prepended with REVIEW_COMMENTS. The review body and comments are separated by a blank line."
-          printf "%s\nREVIEW:\n%s\nREVIEW_COMMENTS:\n%s" \
-            "$BASE_PROMPT" "$REVIEW_BODY_Q" "$ALL_REVIEW_COMMENTS" > "$PROMPT_FILE_PATH"
+          COMPLETE_PROMPT=$(printf "%s\nREVIEW:\n%s\nREVIEW_COMMENTS:\n%s" \
+            "$BASE_PROMPT" "$REVIEW_BODY_Q" "$ALL_REVIEW_COMMENTS")
+          echo "$COMPLETE_PROMPT" > "$PROMPT_FILE_PATH"
           echo "PROMPT_FILE_PATH=$PROMPT_FILE_PATH" >> $GITHUB_OUTPUT
+          MESSAGE_FOR_PROBE=$(printf "I'm giving you a request that needs to be implemented. Your role is ONLY to give me the files that are relevant to the request and nothing else. The request is prepended with the word REQUEST.\\nREQUEST: %s. Give me all the files relevant to this request. Your output MUST be a single json array that can be parsed with programatic json parsing, with the relevant files. Files can be rust or typescript or javascript files. DO NOT INCLUDE ANY OTHER TEXT IN YOUR OUTPUT. ONLY THE JSON ARRAY. Example of output: [\"file1.py\", \"file2.py\"]" "$COMPLETE_PROMPT")
 
       - name: Run Aider with review prompt
         run: |
