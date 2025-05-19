@@ -158,7 +158,7 @@ jobs:
             ISSUE_DETAILS=$(gh issue view $ISSUE_NUMBER --json title,body --repo $GITHUB_REPOSITORY)
             ISSUE_TITLE=$(echo "$ISSUE_DETAILS" | jq -r .title)
             ISSUE_BODY=$(echo "$ISSUE_DETAILS" | jq -r .body)
-            
+
             # Store raw comment body in a file first to avoid shell interpretation issues
             echo '${{ github.event.comment.body }}' > /tmp/raw_comment.txt
             # Extract the command part safely
@@ -214,6 +214,12 @@ jobs:
           fi
           echo "Prompt determined and written to $PROMPT_FILE_PATH"
           echo "PROMPT_FILE_PATH=$PROMPT_FILE_PATH" >> $GITHUB_OUTPUT
+
+          # Store the issue title so we can use it in the PR creation step
+          if [[ ! -z "$ISSUE_TITLE" ]]; then
+            ISSUE_TITLE_SAFE=$(echo "$ISSUE_TITLE" | tr -d '\n' | sed 's/"/\\"/g')
+            echo "ISSUE_TITLE=$ISSUE_TITLE_SAFE" >> $GITHUB_OUTPUT
+          fi
 
       - name: Probe Chat for Relevant Files
         id: probe_files
@@ -323,6 +329,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PR_BRANCH: ${{ steps.commit_and_push.outputs.PR_BRANCH_NAME }}
           ISSUE_NUM: ${{ github.event.issue.number }}
+          ISSUE_TITLE: ${{ steps.determine_prompt.outputs.ISSUE_TITLE }}
         run: |
           # Create PR description in a temporary file to avoid command line length limits
           cat > /tmp/pr-description.md << EOL
@@ -336,7 +343,7 @@ jobs:
 
           # Create PR using the file for the body content
           gh pr create \
-            --title "[Aider PR] Add fixes for issue #${ISSUE_NUM}" \
+            --title "[Aider PR] Fix: ${ISSUE_TITLE}" \
             --body-file /tmp/pr-description.md \
             --head "$PR_BRANCH" \
             --base main
