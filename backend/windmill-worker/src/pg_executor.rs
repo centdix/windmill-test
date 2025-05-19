@@ -645,10 +645,43 @@ fn convert_val(
                 chrono::NaiveTime::parse_from_str(s, "%Y-%m-%dT%H:%M:%S.%3fZ").unwrap_or_default();
             Ok(Box::new(time))
         }
-        Value::String(s) if arg_t == "timestamp" || arg_t == "timestamptz" => {
-            let datetime = chrono::NaiveDateTime::parse_from_str(s, "%Y-%m-%dT%H:%M:%S.%3fZ")
-                .unwrap_or_default();
-            Ok(Box::new(datetime))
+        Value::String(s) if arg_t == "timestamp" => {
+            // For PostgreSQL `timestamp` (TIMESTAMP WITHOUT TIME ZONE), target is NaiveDateTime.
+            // Try parsing as DateTime with offset/Z first, then convert to naive UTC.
+            // If that fails, try common naive datetime string formats.
+            let parsed_datetime = chrono::DateTime::parse_from_rfc3339(s)
+                .map(|dt| dt.naive_utc())
+                .or_else(|_| chrono::NaiveDateTime::parse_from_str(s, "%Y-%m-%dT%H:%M:%S%.f"))
+                .or_else(|_| chrono::NaiveDateTime::parse_from_str(s, "%Y-%m-%d %H:%M:%S%.f"))
+                // Fallback to the original specific format that might have been expected by some inputs.
+                .or_else(|_| chrono::NaiveDateTime::parse_from_str(s, "%Y-%m-%dT%H:%M:%S.%3fZ"))
+                .map_err(|e| {
+                    Error::ExecutionErr(format!(
+                        "Failed to parse string '{}' as PostgreSQL timestamp (naive): {}",
+                        s, e
+                    ))
+                })?;
+            Ok(Box::new(parsed_datetime))
+        }
+        Value::String(s) if arg_t == "timestamptz" => {
+            // For PostgreSQL `timestamptz` (TIMESTAMP WITH TIME ZONE), target is DateTime<Utc>.
+            // Try parsing as DateTime with offset/Z first (RFC3339 is good for this).
+            // If that fails, try common naive datetime string formats and assume they represent UTC.
+            let parsed_datetime_utc = chrono::DateTime::parse_from_rfc3339(s)
+                .map(|dt| dt.with_timezone(&Utc))
+                .or_else(|_| {
+                    chrono::NaiveDateTime::parse_from_str(s, "%Y-%m-%dT%H:%M:%S%.f")
+                        .or_else(|_| chrono::NaiveDateTime::parse_from_str(s, "%Y-%m-%d %H:%M:%S%.f"))
+                        .or_else(|_| chrono::NaiveDateTime::parse_from_str(s, "%Y-%m-%dT%H:%M:%S.%3fZ"))
+                        .map(|naive_dt| Utc.from_utc_datetime(&naive_dt))
+                })
+                .map_err(|e| {
+                    Error::ExecutionErr(format!(
+                        "Failed to parse string '{}' as PostgreSQL timestamptz (UTC): {}",
+                        s, e
+                    ))
+                })?;
+            Ok(Box::new(parsed_datetime_utc))
         }
         Value::String(s) if arg_t == "bytea" => {
             let bytes = engine::general_purpose::STANDARD
