@@ -54,7 +54,7 @@ jobs:
 
           ISSUE_TITLE_Q=$(printf '%q' "${{ github.event.client_payload.issue_title }}")
           ISSUE_BODY_Q=$(printf '%q' "${{ github.event.client_payload.issue_body }}")
-          INSTRUCTION_Q="Try to implement a fix for the issue based on the issue description."
+          INSTRUCTION_Q=$(printf '%q' "${{ github.event.client_payload.instruction }}")
 
           echo "Processing issue with title: $ISSUE_TITLE_Q"
 
@@ -99,10 +99,7 @@ jobs:
 
           # Generate unique branch name using timestamp and issue info
           ISSUE_ID="${{ github.event.client_payload.issue_id }}"
-          if [[ -z "$ISSUE_ID" ]]; then
-            ISSUE_ID="external-$(date +%s)"
-          fi
-          BRANCH_NAME="aider-fix-issue-$ISSUE_ID"
+          BRANCH_NAME="aider-fix-linear-issue-$ISSUE_ID"
           echo "BRANCH_NAME=$BRANCH_NAME" >> $GITHUB_OUTPUT
 
       - name: Probe Chat for Relevant Files
