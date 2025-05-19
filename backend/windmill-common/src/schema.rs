@@ -475,7 +475,7 @@ mod tests {
                 let mut result = HashMap::new();
                 for (key, val) in map {
                     let raw = serde_json::to_string(&val)?; // Serialize the Value to a string
-                    let raw_value: Box<RawValue> = serde_json::from_str(&raw)?; // Convert string to Box<RawValue>
+                    let raw_value = RawValue::from_string(raw)?; // Convert string to Box<RawValue>
                     result.insert(key, raw_value);
                 }
                 Ok(result)
