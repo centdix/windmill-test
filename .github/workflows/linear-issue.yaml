@@ -52,19 +52,10 @@ jobs:
           PROMPT_FILE_PATH=".github/aider/issue-prompt.txt"
           mkdir -p .github/aider
 
-          # Get the issue title and body from the event payload
-          ISSUE_TITLE="${{ github.event.client_payload.issue_title }}"
-          ISSUE_BODY="${{ github.event.client_payload.issue_body }}"
-
-          if [[ -z "$ISSUE_TITLE" || -z "$ISSUE_BODY" ]]; then
-            echo "::error::Issue title or body is missing from the event payload"
-            exit 1
-          fi
-
           echo "Processing issue with title: $ISSUE_TITLE"
 
-          ISSUE_TITLE_Q=$(printf '%q' "$ISSUE_TITLE")
-          ISSUE_BODY_Q=$(printf '%q' "$ISSUE_BODY")
+          ISSUE_TITLE_Q=$(printf '%q' "${{ github.event.client_payload.issue_title }}")
+          ISSUE_BODY_Q=$(printf '%q' "${{ github.event.client_payload.issue_body }}")
           INSTRUCTION_Q="Try to implement a fix for the issue based on the issue description."
 
           JSON_PAYLOAD=$(jq -n \
