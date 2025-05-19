@@ -523,20 +523,21 @@ fn convert_vec_val(
             v.as_str().map(|x| Uuid::parse_str(x).ok()).flatten()
         })?)),
         "date" => Ok(Box::new(map_as_single_type(vec, |v| {
-            v.as_str().map(|x| {
-                chrono::NaiveDate::parse_from_str(x, "%Y-%m-%dT%H:%M:%S.%3fZ").unwrap_or_default()
-            })
+            v.as_str().and_then(|s| s.parse::<chrono::NaiveDate>().ok())
         })?)),
-        "time" | "timetz" => Ok(Box::new(map_as_single_type(vec, |v| {
-            v.as_str().map(|x| {
-                chrono::NaiveTime::parse_from_str(x, "%Y-%m-%dT%H:%M:%S.%3fZ").unwrap_or_default()
-            })
+        "time" => Ok(Box::new(map_as_single_type(vec, |v| {
+            v.as_str().and_then(|s| s.parse::<chrono::NaiveTime>().ok())
         })?)),
-        "timestamp" | "timestamptz" => Ok(Box::new(map_as_single_type(vec, |v| {
-            v.as_str().map(|x| {
-                chrono::NaiveDateTime::parse_from_str(x, "%Y-%m-%dT%H:%M:%S.%3fZ")
-                    .unwrap_or_default()
-            })
+        // timetz is more complex as it should ideally be (NaiveTime, FixedOffset)
+        // For now, parse as NaiveTime, similar to "time"
+        "timetz" => Ok(Box::new(map_as_single_type(vec, |v| {
+            v.as_str().and_then(|s| s.parse::<chrono::NaiveTime>().ok())
+        })?)),
+        "timestamp" => Ok(Box::new(map_as_single_type(vec, |v| {
+            v.as_str().and_then(|s| s.parse::<chrono::NaiveDateTime>().ok())
+        })?)),
+        "timestamptz" => Ok(Box::new(map_as_single_type(vec, |v| {
+            v.as_str().and_then(|s| s.parse::<chrono::DateTime<Utc>>().ok())
         })?)),
         "jsonb" | "json" => Ok(Box::new(
             vec.map(|v| v.clone().into_iter().map(Some).collect_vec()),
@@ -636,19 +637,52 @@ fn convert_val(
         Value::Number(n) => Ok(Box::new(n.as_f64().unwrap())),
         Value::String(s) if arg_t == "uuid" => Ok(Box::new(Uuid::parse_str(s)?)),
         Value::String(s) if arg_t == "date" => {
-            let date =
-                chrono::NaiveDate::parse_from_str(s, "%Y-%m-%dT%H:%M:%S.%3fZ").unwrap_or_default();
+            let date = s.parse::<chrono::NaiveDate>().map_err(|e| {
+                Error::ExecutionErr(format!(
+                    "Invalid date format for '{}': {}. Expected format 'YYYY-MM-DD'.",
+                    s, e
+                ))
+            })?;
             Ok(Box::new(date))
         }
-        Value::String(s) if arg_t == "time" || arg_t == "timetz" => {
-            let time =
-                chrono::NaiveTime::parse_from_str(s, "%Y-%m-%dT%H:%M:%S.%3fZ").unwrap_or_default();
+        Value::String(s) if arg_t == "time" => {
+            let time = s.parse::<chrono::NaiveTime>().map_err(|e| {
+                Error::ExecutionErr(format!(
+                    "Invalid time format for '{}': {}. Expected format 'HH:MM:SS'.",
+                    s, e
+                ))
+            })?;
             Ok(Box::new(time))
         }
-        Value::String(s) if arg_t == "timestamp" || arg_t == "timestamptz" => {
-            let datetime = chrono::NaiveDateTime::parse_from_str(s, "%Y-%m-%dT%H:%M:%S.%3fZ")
-                .unwrap_or_default();
+        // timetz is more complex as it should ideally be (NaiveTime, FixedOffset)
+        // For now, parse as NaiveTime, similar to "time"
+        Value::String(s) if arg_t == "timetz" => {
+            let time = s.parse::<chrono::NaiveTime>().map_err(|e| {
+                Error::ExecutionErr(format!(
+                    "Invalid timetz format for '{}': {}. Expected format 'HH:MM:SS' (offset not processed).",
+                    s, e
+                ))
+            })?;
+            Ok(Box::new(time))
+        }
+        Value::String(s) if arg_t == "timestamp" => {
+            let datetime = s.parse::<chrono::NaiveDateTime>().map_err(|e| {
+                Error::ExecutionErr(format!(
+ 국내에서도 이같이 다양한 형식의 문자열을 파싱할 수 있습니다.
+                    "Invalid timestamp format for '{}': {}. Expected format like 'YYYY-MM-DD HH:MM:SS' or 'YYYY-MM-DDTHH:MM:SS'.",
+                    s, e
+                ))
+            })?;
             Ok(Box::new(datetime))
+        }
+        Value::String(s) if arg_t == "timestamptz" => {
+            let datetime_utc = s.parse::<chrono::DateTime<Utc>>().map_err(|e| {
+                Error::ExecutionErr(format!(
+                    "Invalid timestamptz format for '{}': {}. Expected ISO 8601 format like 'YYYY-MM-DDTHH:MM:SSZ' or with offset.",
+                    s, e
+                ))
+            })?;
+            Ok(Box::new(datetime_utc))
         }
         Value::String(s) if arg_t == "bytea" => {
             let bytes = engine::general_purpose::STANDARD
