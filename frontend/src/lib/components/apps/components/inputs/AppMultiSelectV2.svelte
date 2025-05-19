@@ -170,7 +170,7 @@
 	/>
 {/each}
 
-{#each Object.keys(css ?? {}) as key (key)}
+{#each Object.keys(css) as key (key)}
 	<ResolveStyle
 		{id}
 		{customCss}
