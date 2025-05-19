@@ -35,12 +35,11 @@
 		}
 	})
 
-	const resolvedConfig = initConfig(
-		components['menucomponent'].initialData.configuration,
-		configuration
+	const resolvedConfig = $derived(
+		initConfig(components['menucomponent'].initialData.configuration, configuration)
 	)
 
-	let css = initCss($app.css?.menucomponent, customCss)
+	let css = $state(initCss($app.css?.menucomponent, customCss))
 
 	let beforeIconComponent: any
 	let afterIconComponent: any
