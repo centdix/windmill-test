@@ -48,20 +48,29 @@
 
 	function setResultsFromSelectedItems() {
 		outputs?.result.set([
-			...(selectedItems?.map((item) => {
-				if (typeof item == 'number') {
-					return item.toString()
-				} else if (typeof item == 'object' && item.value != undefined && item.label != undefined) {
-					return item?.value ?? `NOT_STRING`
-				} else if (typeof item == 'string') {
-					return item
-				} else if (typeof item == 'object' && item.label != undefined) {
-					return item.label
-				} else {
-					return 'NOT_STRING'
+			...(selectedItems?.map((item): string => {
+				if (typeof item === 'number') {
+					return item.toString();
 				}
+				if (typeof item === 'string') {
+					return item;
+				}
+				if (typeof item === 'object' && item !== null) {
+					// Check for { value: V, label: L } structure first
+					if (item.value !== undefined && item.label !== undefined) {
+						if (item.value === null) return 'NOT_STRING'; // Consistent "NOT_STRING" for null value
+						return String(item.value); // Ensure value is stringified
+					}
+					// Check for { label: L } structure (value is undefined)
+					else if (item.label !== undefined) {
+						if (item.label === null) return 'NOT_STRING'; // Consistent "NOT_STRING" for null label
+						return String(item.label); // Ensure label is stringified
+					}
+				}
+				// Fallback for null items or objects not matching expected structures (e.g., {}, {value: V})
+				return 'NOT_STRING';
 			}) ?? [])
-		])
+		]);
 	}
 
 	$componentControl[id] = {
