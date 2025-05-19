@@ -175,6 +175,7 @@ jobs:
           echo "Attempting to push changes to PR branch $CURRENT_BRANCH_NAME for PR #${{ github.event.pull_request.number }}"
 
           # Pull latest changes to avoid rejection due to non-fast-forward
+          git config pull.rebase true
           git pull origin $CURRENT_BRANCH_NAME
 
           if git push origin $CURRENT_BRANCH_NAME; then
