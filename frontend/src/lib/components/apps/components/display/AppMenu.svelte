@@ -147,26 +147,28 @@
 					{#if menuItems.length > 0}
 						{#each menuItems as actionButton, actionIndex (actionButton?.id)}
 							{#if actionButton.type == 'buttoncomponent'}
-								<div
-									on:pointerup={() => {
+								<AppButton
+									noInitialize
+									extraKey={'idx' + actionIndex}
+									render={true}
+									id={actionButton.id}
+									customCss={actionButton.customCss}
+									configuration={actionButton.configuration}
+									recomputeIds={actionButton.recomputeIds}
+									componentInput={actionButton.componentInput}
+									noWFull={false}
+									isMenuItem={true}
+									onClick={() => {
 										outputs?.result.set({
 											latestButtonClicked: actionButton.id
 										})
 									}}
-								>
-									<AppButton
-										noInitialize
-										extraKey={'idx' + actionIndex}
-										render={true}
-										id={actionButton.id}
-										customCss={actionButton.customCss}
-										configuration={actionButton.configuration}
-										recomputeIds={actionButton.recomputeIds}
-										componentInput={actionButton.componentInput}
-										noWFull={false}
-										isMenuItem={true}
-									/>
-								</div>
+									postAction={() => {
+										if (createMenu && createMenu.states && createMenu.states.open) {
+											createMenu.states.open.set(false)
+										}
+									}}
+								/>
 							{/if}
 						{/each}
 					{/if}
