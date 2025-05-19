@@ -67,6 +67,7 @@ jobs:
         run: |
           mkdir -p .github/aider
           PROMPT_FILE_PATH=".github/aider/review-prompt.txt"
+          PROBE_FILE_PATH=".github/aider/probe-output.txt"
 
           # Get PR review body
           REVIEW_BODY="${{ github.event.review.body }}"
@@ -92,7 +93,53 @@ jobs:
             "$BASE_PROMPT" "$REVIEW_BODY_Q" "$ALL_REVIEW_COMMENTS")
           echo "$COMPLETE_PROMPT" > "$PROMPT_FILE_PATH"
           echo "PROMPT_FILE_PATH=$PROMPT_FILE_PATH" >> $GITHUB_OUTPUT
-          MESSAGE_FOR_PROBE=$(printf "I'm giving you a request that needs to be implemented. Your role is ONLY to give me the files that are relevant to the request and nothing else. The request is prepended with the word REQUEST.\\nREQUEST: %s. Give me all the files relevant to this request. Your output MUST be a single json array that can be parsed with programatic json parsing, with the relevant files. Files can be rust or typescript or javascript files. DO NOT INCLUDE ANY OTHER TEXT IN YOUR OUTPUT. ONLY THE JSON ARRAY. Example of output: [\"file1.py\", \"file2.py\"]" "$COMPLETE_PROMPT")
+          printf "I'm giving you a request that needs to be implemented. Your role is ONLY to give me the files that are relevant to the request and nothing else. The request is prepended with the word REQUEST.\\nREQUEST: %s. Give me all the files relevant to this request. Your output MUST be a single json array that can be parsed with programatic json parsing, with the relevant files. Files can be rust or typescript or javascript files. DO NOT INCLUDE ANY OTHER TEXT IN YOUR OUTPUT. ONLY THE JSON ARRAY. Example of output: [\"file1.py\", \"file2.py\"]" "$COMPLETE_PROMPT" > "$PROBE_FILE_PATH"
+          echo "PROBE_FILE_PATH=$PROBE_FILE_PATH" >> $GITHUB_OUTPUT
+
+      - name: Probe Chat for Relevant Files
+        id: probe_files
+        env:
+          PROMPT_CONTENT_FILE: ${{ steps.generate_prompt.outputs.PROBE_FILE_PATH }}
+        run: |
+          echo "Running probe-chat to find relevant files..."
+          if [[ ! -f "$PROMPT_CONTENT_FILE" ]]; then
+            echo "::error::Prompt file $PROMPT_CONTENT_FILE not found!"
+            exit 1
+          fi
+          PROMPT_CONTENT=$(cat "$PROMPT_CONTENT_FILE")
+          if [ -z "$PROMPT_CONTENT" ]; then
+             echo "::error::Prompt content is empty!"
+             exit 1
+          fi
+
+          PROMPT_ESCAPED=$(jq -Rs . <<< "$PROMPT_CONTENT")
+
+          MESSAGE_FOR_PROBE=$(jq -n --arg prompt_escaped "$PROMPT_ESCAPED" \
+            '{ "message": "I'\''m giving you a request that needs to be implemented. Your role is ONLY to give me the files that are relevant to the request and nothing else. The request is prepended with the word REQUEST.\\nREQUEST: \($prompt_escaped). Give me all the files relevant to this request. Your output MUST be a single json array that can be parsed with programatic json parsing, with the relevant files. Files can be rust or typescript or javascript files. DO NOT INCLUDE ANY OTHER TEXT IN YOUR OUTPUT. ONLY THE JSON ARRAY. Example of output: [\"file1.py\", \"file2.py\"]" }' | jq -r .message)
+
+          set -o pipefail
+          PROBE_OUTPUT=$(npx --yes @buger/probe-chat@latest --max-iterations 50 --model-name gemini-2.5-pro-preview-05-06 --message "$MESSAGE_FOR_PROBE") || {
+            echo "::error::probe-chat command failed. Output:"
+            echo "$PROBE_OUTPUT"
+            exit 1
+          }
+          set +o pipefail
+          echo "Probe-chat raw output:"
+          echo "$PROBE_OUTPUT"
+
+          JSON_FILES=$(echo "$PROBE_OUTPUT" | sed -n '/^\s*\[/,$p' | sed '/^\s*\]/q')
+          echo "Extracted JSON block:"
+          echo "$JSON_FILES"
+
+          FILES_LIST=$(echo "$JSON_FILES" | jq -e -r '[.[] | select(type == "string" and . != "" and . != null and (endswith("/") | not))] | map(@sh) | join(" ")' || echo "")
+
+          if [[ -z "$FILES_LIST" ]]; then
+             echo "::warning::probe-chat did not identify any relevant files."
+             exit 1
+          fi
+
+          echo "Formatted files list for aider: $FILES_LIST"
+          echo "FILES_TO_EDIT=$FILES_LIST" >> $GITHUB_ENV
 
       - name: Run Aider with review prompt
         run: |
