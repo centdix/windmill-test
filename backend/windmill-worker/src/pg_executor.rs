@@ -523,19 +523,20 @@ fn convert_vec_val(
             v.as_str().map(|x| Uuid::parse_str(x).ok()).flatten()
         })?)),
         "date" => Ok(Box::new(map_as_single_type(vec, |v| {
-            v.as_str().map(|x| {
-                chrono::NaiveDate::parse_from_str(x, "%Y-%m-%dT%H:%M:%S.%3fZ").unwrap_or_default()
-            })
+            v.as_str().and_then(|x| x.parse::<chrono::NaiveDate>().ok())
         })?)),
         "time" | "timetz" => Ok(Box::new(map_as_single_type(vec, |v| {
-            v.as_str().map(|x| {
-                chrono::NaiveTime::parse_from_str(x, "%Y-%m-%dT%H:%M:%S.%3fZ").unwrap_or_default()
-            })
+            v.as_str().and_then(|x| x.parse::<chrono::NaiveTime>().ok())
         })?)),
-        "timestamp" | "timestamptz" => Ok(Box::new(map_as_single_type(vec, |v| {
-            v.as_str().map(|x| {
-                chrono::NaiveDateTime::parse_from_str(x, "%Y-%m-%dT%H:%M:%S.%3fZ")
-                    .unwrap_or_default()
+        "timestamp" => Ok(Box::new(map_as_single_type(vec, |v| {
+            v.as_str().and_then(|x| x.parse::<chrono::NaiveDateTime>().ok())
+        })?)),
+        "timestamptz" => Ok(Box::new(map_as_single_type(vec, |v| {
+            v.as_str().and_then(|x| {
+                chrono::DateTime::parse_from_rfc3339(x)
+                    .map(|dt| dt.with_timezone(&chrono::Utc))
+                    .ok()
+                    .or_else(|| x.parse::<chrono::DateTime<chrono::Utc>>().ok())
             })
         })?)),
         "jsonb" | "json" => Ok(Box::new(
@@ -636,19 +637,26 @@ fn convert_val(
         Value::Number(n) => Ok(Box::new(n.as_f64().unwrap())),
         Value::String(s) if arg_t == "uuid" => Ok(Box::new(Uuid::parse_str(s)?)),
         Value::String(s) if arg_t == "date" => {
-            let date =
-                chrono::NaiveDate::parse_from_str(s, "%Y-%m-%dT%H:%M:%S.%3fZ").unwrap_or_default();
+            let date = s.parse::<chrono::NaiveDate>()
+                .map_err(|e| Error::ExecutionErr(format!("Invalid date string '{}': {}", s, e)))?;
             Ok(Box::new(date))
         }
         Value::String(s) if arg_t == "time" || arg_t == "timetz" => {
-            let time =
-                chrono::NaiveTime::parse_from_str(s, "%Y-%m-%dT%H:%M:%S.%3fZ").unwrap_or_default();
+            let time = s.parse::<chrono::NaiveTime>()
+                .map_err(|e| Error::ExecutionErr(format!("Invalid time string '{}' for type {}: {}", s, arg_t, e)))?;
             Ok(Box::new(time))
         }
-        Value::String(s) if arg_t == "timestamp" || arg_t == "timestamptz" => {
-            let datetime = chrono::NaiveDateTime::parse_from_str(s, "%Y-%m-%dT%H:%M:%S.%3fZ")
-                .unwrap_or_default();
+        Value::String(s) if arg_t == "timestamp" => {
+            let datetime = s.parse::<chrono::NaiveDateTime>()
+                .map_err(|e| Error::ExecutionErr(format!("Invalid timestamp string '{}': {}", s, e)))?;
             Ok(Box::new(datetime))
+        }
+        Value::String(s) if arg_t == "timestamptz" => {
+            let datetime_utc = chrono::DateTime::parse_from_rfc3339(s)
+                .map(|dt| dt.with_timezone(&chrono::Utc))
+                .or_else(|_| s.parse::<chrono::DateTime<chrono::Utc>>())
+                .map_err(|e| Error::ExecutionErr(format!("Invalid timestamptz string '{}': {}", s, e)))?;
+            Ok(Box::new(datetime_utc))
         }
         Value::String(s) if arg_t == "bytea" => {
             let bytes = engine::general_purpose::STANDARD
