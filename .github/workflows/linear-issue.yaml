@@ -165,6 +165,7 @@ jobs:
           aider \
             --read .cursor/rules/rust-best-practices.mdc \
             --read .cursor/rules/svelte5-best-practices.mdc \
+            --read .cursor/rules/windmill-overview.mdc \
             ${{ env.FILES_TO_EDIT }} \
             --model gemini/gemini-2.5-pro-preview-05-06 \
             --message-file .github/aider/issue-prompt.txt \
@@ -215,7 +216,6 @@ jobs:
           PR_BRANCH: ${{ steps.commit_and_push.outputs.PR_BRANCH_NAME }}
           ISSUE_TITLE: ${{ steps.create_prompt.outputs.ISSUE_TITLE }}
           ISSUE_ID: ${{ github.event.client_payload.issue_id }}
-          ISSUE_URL: ${{ github.event.client_payload.issue_url }}
         run: |
           # Create PR description in a temporary file to avoid command line length limits
           cat > /tmp/pr-description.md << EOL
