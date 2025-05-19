@@ -581,12 +581,14 @@ fn convert_val(
             "double" | "float8" => Ok(Box::new(None::<f64>)),
             "uuid" => Ok(Box::new(None::<Uuid>)),
             "date" => Ok(Box::new(None::<chrono::NaiveDate>)),
-            "time" | "timetz" => Ok(Box::new(None::<chrono::NaiveTime>)),
-            "timestamp" | "timestamptz" => Ok(Box::new(None::<chrono::NaiveDateTime>)),
-            "jsonb" | "json" => Ok(Box::new(None::<Option<Value>>)),
+            "time" | "time without time zone" => Ok(Box::new(None::<chrono::NaiveTime>)),
+            "timetz" | "time with time zone" => Ok(Box::new(None::<(chrono::NaiveTime, chrono::FixedOffset)>)),
+            "timestamp" | "timestamp without time zone" => Ok(Box::new(None::<chrono::NaiveDateTime>)),
+            "timestamptz" | "timestamp with time zone" => Ok(Box::new(None::<chrono::DateTime<Utc>>)),
+            "jsonb" | "json" => Ok(Box::new(None::<serde_json::Value>)),
             "bytea" => Ok(Box::new(None::<Vec<u8>>)),
             "text" | "varchar" => Ok(Box::new(None::<String>)),
-            _ => Err(anyhow::anyhow!("Unsupported JSON null type"))?,
+            _ => Err(Error::ExecutionErr(format!("Unsupported JSON null type for otyp: {}", arg_t)))?,
         },
         Value::Bool(b) => Ok(Box::new(b.clone())),
         Value::Number(n) if matches!(typ, Typ::Str(_)) => Ok(Box::new(n.to_string())),
@@ -636,19 +638,32 @@ fn convert_val(
         Value::Number(n) => Ok(Box::new(n.as_f64().unwrap())),
         Value::String(s) if arg_t == "uuid" => Ok(Box::new(Uuid::parse_str(s)?)),
         Value::String(s) if arg_t == "date" => {
-            let date =
-                chrono::NaiveDate::parse_from_str(s, "%Y-%m-%dT%H:%M:%S.%3fZ").unwrap_or_default();
+            let date = s.parse::<chrono::NaiveDate>()
+                .map_err(|e| Error::ExecutionErr(format!("Invalid date string '{}': {}", s, e)))?;
             Ok(Box::new(date))
         }
-        Value::String(s) if arg_t == "time" || arg_t == "timetz" => {
-            let time =
-                chrono::NaiveTime::parse_from_str(s, "%Y-%m-%dT%H:%M:%S.%3fZ").unwrap_or_default();
+        Value::String(s) if arg_t == "time" || arg_t == "time without time zone" => {
+            let time = s.parse::<chrono::NaiveTime>()
+                .map_err(|e| Error::ExecutionErr(format!("Invalid time string '{}': {}", s, e)))?;
             Ok(Box::new(time))
         }
-        Value::String(s) if arg_t == "timestamp" || arg_t == "timestamptz" => {
-            let datetime = chrono::NaiveDateTime::parse_from_str(s, "%Y-%m-%dT%H:%M:%S.%3fZ")
-                .unwrap_or_default();
+        Value::String(s) if arg_t == "timetz" || arg_t == "time with time zone" => {
+            // TIMETZ expects (NaiveTime, FixedOffset)
+            // We parse the string as a DateTime<FixedOffset> and extract the time and offset parts.
+            // This assumes the input string `s` is a full ISO 8601 datetime string with an offset.
+            let dt_with_offset = s.parse::<chrono::DateTime<FixedOffset>>()
+                .map_err(|e| Error::ExecutionErr(format!("Invalid timetz string '{}'. Expected ISO 8601 datetime with offset (e.g., YYYY-MM-DDTHH:MM:SS+ZZ:ZZ): {}", s, e)))?;
+            Ok(Box::new((dt_with_offset.time(), dt_with_offset.offset().clone())))
+        }
+        Value::String(s) if arg_t == "timestamp" || arg_t == "timestamp without time zone" => {
+            let datetime = s.parse::<chrono::NaiveDateTime>()
+                .map_err(|e| Error::ExecutionErr(format!("Invalid timestamp string '{}': {}", s, e)))?;
             Ok(Box::new(datetime))
+        }
+        Value::String(s) if arg_t == "timestamptz" || arg_t == "timestamp with time zone" => {
+            let datetime_utc = s.parse::<chrono::DateTime<Utc>>()
+                .map_err(|e| Error::ExecutionErr(format!("Invalid timestamptz string '{}': {}", s, e)))?;
+            Ok(Box::new(datetime_utc))
         }
         Value::String(s) if arg_t == "bytea" => {
             let bytes = engine::general_purpose::STANDARD
