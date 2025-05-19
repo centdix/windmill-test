@@ -582,7 +582,8 @@ fn convert_val(
             "uuid" => Ok(Box::new(None::<Uuid>)),
             "date" => Ok(Box::new(None::<chrono::NaiveDate>)),
             "time" | "timetz" => Ok(Box::new(None::<chrono::NaiveTime>)),
-            "timestamp" | "timestamptz" => Ok(Box::new(None::<chrono::NaiveDateTime>)),
+            "timestamp" => Ok(Box::new(None::<chrono::NaiveDateTime>)),
+            "timestamptz" => Ok(Box::new(None::<chrono::DateTime<chrono::Utc>>)),
             "jsonb" | "json" => Ok(Box::new(None::<Option<Value>>)),
             "bytea" => Ok(Box::new(None::<Vec<u8>>)),
             "text" | "varchar" => Ok(Box::new(None::<String>)),
@@ -642,13 +643,22 @@ fn convert_val(
         }
         Value::String(s) if arg_t == "time" || arg_t == "timetz" => {
             let time =
-                chrono::NaiveTime::parse_from_str(s, "%Y-%m-%dT%H:%M:%S.%3fZ").unwrap_or_default();
+                chrono::NaiveTime::parse_from_str(s, "%Y-%m-%dT%H:%M:%S.%3fZ")
+                .map_err(|e| Error::ExecutionErr(format!("Invalid time format for '{}': {}", s, e)))?;
             Ok(Box::new(time))
         }
-        Value::String(s) if arg_t == "timestamp" || arg_t == "timestamptz" => {
-            let datetime = chrono::NaiveDateTime::parse_from_str(s, "%Y-%m-%dT%H:%M:%S.%3fZ")
-                .unwrap_or_default();
+        Value::String(s) if arg_t == "timestamp" => {
+            let datetime = chrono::NaiveDateTime::parse_from_rfc3339(s)
+                .or_else(|_| chrono::NaiveDateTime::parse_from_str(s, "%Y-%m-%d %H:%M:%S%.f"))
+                .or_else(|_| chrono::NaiveDateTime::parse_from_str(s, "%Y-%m-%d %H:%M:%S"))
+                .map_err(|e| Error::ExecutionErr(format!("Invalid timestamp format for '{}': {}", s, e)))?;
             Ok(Box::new(datetime))
+        }
+        Value::String(s) if arg_t == "timestamptz" => {
+            let datetime_utc = chrono::DateTime::parse_from_rfc3339(s)
+                .map(|dt| dt.with_timezone(&chrono::Utc))
+                .map_err(|e| Error::ExecutionErr(format!("Invalid timestamptz format for '{}': {}", s, e)))?;
+            Ok(Box::new(datetime_utc))
         }
         Value::String(s) if arg_t == "bytea" => {
             let bytes = engine::general_purpose::STANDARD
