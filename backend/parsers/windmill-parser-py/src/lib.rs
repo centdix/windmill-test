@@ -98,13 +98,14 @@ pub fn parse_python_signature(
                 .iter()
                 .enumerate()
                 .map(|(i, x)| {
-                    let (mut typ, has_default) = x
+                    // The boolean returned by parse_expr is no longer needed here as nullability is encoded in `typ`.
+                    let (mut typ, _is_optional_from_annotation_syntax) = x
                         .as_arg()
                         .annotation
                         .as_ref()
                         .map_or((Typ::Unknown, false), |e| parse_expr(e));
 
-                    let default = if i >= def_arg_start {
+                    let default_value_from_ast = if i >= def_arg_start {
                         params
                             .defaults()
                             .nth(i - def_arg_start)
@@ -122,10 +123,10 @@ pub fn parse_python_signature(
                     };
 
                     if should_get_type_from_default
-                        && default.is_some()
-                        && default != Some(json!(FUNCTION_CALL))
+                        && default_value_from_ast.is_some()
+                        && default_value_from_ast != Some(json!(FUNCTION_CALL))
                     {
-                        typ = json_to_typ(default.as_ref().unwrap());
+                        typ = json_to_typ(default_value_from_ast.as_ref().unwrap());
                     }
 
                     // if the type is still a list of unknowns after checking the default, we set it to a list of strings to not break past behavior
@@ -140,8 +141,10 @@ pub fn parse_python_signature(
                         otyp: None,
                         name: x.as_arg().arg.to_string(),
                         typ,
-                        has_default: has_default || default.is_some(),
-                        default,
+                        // An argument has a default (is not required) if and only if
+                        // an explicit default value is provided in the function signature.
+                        has_default: default_value_from_ast.is_some(),
+                        default: default_value_from_ast,
                         oidx: None,
                     }
                 })
@@ -178,7 +181,9 @@ fn parse_expr(e: &Box<Expr>) -> (Typ, bool) {
                 x.right.as_ref(),
                 Expr::Constant(ExprConstant { value: Constant::None, .. })
             ) {
-                (parse_expr(&x.left).0, true)
+                let (left_typ, _) = parse_expr(&x.left);
+                // Encode nullability directly in the Typ structure
+                (Typ::Union(vec![left_typ, Typ::Unknown]), false)
             } else {
                 (Typ::Unknown, false)
             }
@@ -208,7 +213,11 @@ fn parse_expr(e: &Box<Expr>) -> (Typ, bool) {
                     (Typ::Str(values), false)
                 }
                 "List" | "list" => (Typ::List(Box::new(parse_expr(&x.slice).0)), false),
-                "Optional" => (parse_expr(&x.slice).0, true),
+                "Optional" => {
+                    let (slice_typ, _) = parse_expr(&x.slice);
+                    // Encode nullability directly in the Typ structure
+                    (Typ::Union(vec![slice_typ, Typ::Unknown]), false)
+                }
                 _ => (Typ::Unknown, false),
             },
             _ => (Typ::Unknown, false),

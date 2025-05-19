@@ -158,23 +158,26 @@ impl SchemaValidationRule {
         if let Some(typ) = typ.as_str() {
             schema_rules.append(&mut SchemaValidationRule::from_primitive(
                 &JsonPrimitiveType::from_str(typ)?,
-                val,
+                val, // Pass the full property schema value
             )?);
         } else if let Some(typ_arr) = typ.as_array() {
-            let typ_arr = typ_arr
+            // When type is an array (e.g., ["string", "null"]), iterate through each type string.
+            // For each type string, call from_primitive, but pass the original `val` (the full property schema)
+            // so that from_primitive can access other constraints like "format", "enum" at the same level.
+            let rules_for_union = typ_arr
                 .into_iter()
-                .map(|v| {
+                .map(|type_entry_val| {
                     SchemaValidationRule::from_primitive(
                         &JsonPrimitiveType::from_str(
-                            v.as_str()
+                            type_entry_val.as_str()
                                 .ok_or(anyhow!("Expected array of strings for `type` field"))?,
                         )?,
-                        v,
+                        val, // Pass the original `val` (full property schema) here
                     )
                 })
                 .collect::<Result<Vec<Vec<SchemaValidationRule>>, anyhow::Error>>()?;
 
-            schema_rules.push(SchemaValidationRule::IsUnionType(typ_arr));
+            schema_rules.push(SchemaValidationRule::IsUnionType(rules_for_union));
         } else {
             return Err(anyhow!(
                 "Unsupported value for type field, expected string or string array"
