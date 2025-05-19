@@ -209,14 +209,14 @@ pub struct ConstantDelay {
 #[serde(default)]
 pub struct ExponentialDelay {
     pub attempts: u32,
-    pub multiplier: u16,
+    pub multiplier: f32,
     pub seconds: u16,
     pub random_factor: Option<i8>, // percentage, defaults to 0 for no jitter
 }
 
 impl Default for ExponentialDelay {
     fn default() -> Self {
-        Self { attempts: 0, multiplier: 1, seconds: 0, random_factor: None }
+        Self { attempts: 0, multiplier: 1.0, seconds: 0, random_factor: None }
     }
 }
 
