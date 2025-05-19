@@ -165,8 +165,6 @@ impl Retry {
 
             if let Some(random_factor) = exponential.random_factor {
                 if random_factor > 0 {
-                    // random_factor is i8 and > 0, so it's in [1, 127].
-                    // std::cmp::min(random_factor, 100) correctly limits it to [1, 100].
                     let random_component_val =
                         rand::rng().random_range(0..(std::cmp::min(random_factor, 100) as u16));
                     let change_percentage = (random_component_val as f32) / 100.0;
