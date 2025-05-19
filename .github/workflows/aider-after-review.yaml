@@ -79,7 +79,63 @@ jobs:
           # PR_BODY=$(echo "$PR_DETAILS" | jq -r .body)
 
           # Get all PR review comments
-          REVIEW_COMMENTS=$(gh pr view $PR_NUMBER --json reviews -q '.reviews[] | select(.state == "CHANGES_REQUESTED") | .body' --repo $GITHUB_REPOSITORY)
+          REVIEW_COMMENTS=$(gh api graphql -f query='
+            query($owner:String!, $repo:String!, $pr:Int!) {
+              repository(owner:$owner, name:$repo) {
+                pullRequest(number:$pr) {
+                  # inline threads
+                  reviewThreads(first:100) {
+                    nodes {
+                      path
+                      line
+                      comments(first:10) {
+                        nodes {
+                          author { login }
+                          body
+                          createdAt
+                        }
+                      }
+                    }
+                  }
+                  # top-level reviews
+                  reviews(first:100) {
+                    nodes {
+                      author { login }
+                      state
+                      body
+                      submittedAt
+                    }
+                  }
+                }
+              }
+            }
+          ' -F owner=${GITHUB_REPOSITORY%/*} -F repo=${GITHUB_REPOSITORY#*/} -F pr=$PR_NUMBER \
+            --jq '
+              .data.repository.pullRequest as $pr |
+              {
+                threads: [
+                  $pr.reviewThreads.nodes[] |
+                    {
+                      file: .path,
+                      line: .line,
+                      comments: [.comments.nodes[] | {
+                        user: .author.login,
+                        at: .createdAt,
+                        body: .body
+                      }]
+                    }
+                ],
+                changeRequests: [
+                  $pr.reviews.nodes[] |
+                    select(.state=="CHANGES_REQUESTED") |
+                    {
+                      user: .author.login,
+                      at: .submittedAt,
+                      body: .body
+                    }
+                ]
+              }
+            ')
           REVIEW_BODY_Q=$(printf '%q' "$REVIEW_BODY")
 
           ALL_REVIEW_COMMENTS=$(gh api \
