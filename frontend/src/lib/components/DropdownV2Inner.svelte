@@ -6,6 +6,7 @@
 	import type { Item } from '$lib/utils'
 	export let items: Item[] | (() => Item[]) | (() => Promise<Item[]>) = []
 	export let meltItem: MenubarMenuElements['item']
+	export let closeDropdown: () => void
 
 	let computedItems: Item[] | undefined = undefined
 	async function computeItems() {
@@ -23,7 +24,10 @@
 	<div class="flex flex-col">
 		{#each computedItems ?? [] as item}
 			<MenuItem
-				on:click={(e) => item?.action?.(e)}
+				on:click={(e) => {
+					item?.action?.(e)
+					closeDropdown()
+				}}
 				href={item?.href}
 				disabled={item?.disabled}
 				class={twMerge(

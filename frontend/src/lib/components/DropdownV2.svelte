@@ -110,7 +110,7 @@
 		<div
 			class="bg-surface border w-56 origin-top-right rounded-md shadow-md focus:outline-none overflow-y-auto py-1 max-h-[50vh]"
 		>
-			<DropdownV2Inner items={computeItems} meltItem={item} />
+			<DropdownV2Inner items={computeItems} meltItem={item} {closeDropdown} />
 		</div>
 	</div>
 {/if}
