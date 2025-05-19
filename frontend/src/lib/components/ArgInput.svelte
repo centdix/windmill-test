@@ -177,13 +177,13 @@
 			value = structuredClone(defaultValue)
 			if (defaultValue === undefined || defaultValue === null) {
 				if (inputCat === 'string') {
-					value = nullable ? null : ''
+					value = nnullable ? null : ''
 				} else if (inputCat == 'enum' && required) {
 					value = enum_?.[0]
 				} else if (inputCat == 'boolean') {
 					value = false
 				} else if (inputCat == 'list') {
-					value = []
+					value = nnullable ? null : []
 				}
 			} else if (inputCat === 'object') {
 				evalValueToRaw()
