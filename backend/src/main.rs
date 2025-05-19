@@ -256,6 +256,42 @@ async fn windmill_main() -> anyhow::Result<()> {
         std::env::set_var("RUST_LOG", "info")
     }
 
+    if let Ok(init_script) = std::env::var("INIT_SCRIPT") {
+        if !init_script.is_empty() {
+            tracing::info!("Executing INIT_SCRIPT: {}", init_script);
+            match std::process::Command::new("sh")
+                .arg("-c")
+                .arg(&init_script)
+                .status()
+            {
+                Ok(status) => {
+                    if status.success() {
+                        tracing::info!("INIT_SCRIPT executed successfully.");
+                    } else {
+                        tracing::error!(
+                            "INIT_SCRIPT failed with status: {:?}. Stderr: {:?}",
+                            status.code(),
+                            String::from_utf8_lossy(
+                                &std::process::Command::new("sh")
+                                    .arg("-c")
+                                    .arg(&init_script)
+                                    .output()
+                                    .map_or_else(|_| Vec::new(), |o| o.stderr)
+                            )
+                        );
+                    }
+                }
+                Err(e) => {
+                    tracing::error!("Failed to execute INIT_SCRIPT: {:?}", e);
+                }
+            }
+        } else {
+            tracing::info!("INIT_SCRIPT is set but empty, skipping execution.");
+        }
+    } else {
+        tracing::info!("INIT_SCRIPT not set, skipping execution.");
+    }
+
     if let Err(_e) = rustls::crypto::ring::default_provider().install_default() {
         tracing::error!("Failed to install rustls crypto provider");
     }
