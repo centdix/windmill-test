@@ -35,3 +35,4 @@ jobs:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
           timeout_minutes: "60"
           custom_instructions: "If you create a PR, the title must start with [Claude PR]"
+          trigger_phrase: "/aider"
