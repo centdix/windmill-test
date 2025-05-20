@@ -260,7 +260,6 @@ jobs:
 
           if [[ -z "$FILES_LIST" ]]; then
              echo "::warning::probe-chat did not identify any relevant files."
-             exit 1
           fi
 
           echo "Formatted files list for aider: $FILES_LIST"
