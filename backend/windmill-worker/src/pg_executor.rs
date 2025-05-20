@@ -33,6 +33,8 @@ use windmill_parser_sql::{
     parse_db_resource, parse_pg_statement_arg_indices, parse_pgsql_sig, parse_sql_blocks,
 };
 use windmill_queue::{CanceledBy, MiniPulledJob};
+use chrono::NaiveDateTime;
+use once_cell::sync::Lazy;
 
 use crate::common::{build_args_values, sizeof_val, OccupancyMetrics};
 use crate::handle_child::run_future_with_polling_update_job_poller;
@@ -533,10 +535,7 @@ fn convert_vec_val(
             })
         })?)),
         "timestamp" | "timestamptz" => Ok(Box::new(map_as_single_type(vec, |v| {
-            v.as_str().map(|x| {
-                chrono::NaiveDateTime::parse_from_str(x, "%Y-%m-%dT%H:%M:%S.%3fZ")
-                    .unwrap_or_default()
-            })
+            v.as_str().map(|x| parse_timestamp_string(x))
         })?)),
         "jsonb" | "json" => Ok(Box::new(
             vec.map(|v| v.clone().into_iter().map(Some).collect_vec()),
@@ -646,8 +645,7 @@ fn convert_val(
             Ok(Box::new(time))
         }
         Value::String(s) if arg_t == "timestamp" || arg_t == "timestamptz" => {
-            let datetime = chrono::NaiveDateTime::parse_from_str(s, "%Y-%m-%dT%H:%M:%S.%3fZ")
-                .unwrap_or_default();
+            let datetime = parse_timestamp_string(s);
             Ok(Box::new(datetime))
         }
         Value::String(s) if arg_t == "bytea" => {
@@ -917,6 +915,74 @@ fn get_array<'a, T: FromSql<'a>>(
         }
         None => JSONValue::Null,
     })
+}
+
+// 2023-12-01T16:18:00.000Z
+static DATE_REGEX_ISO: Lazy<regex::Regex> = Lazy::new(|| {
+    regex::Regex::new(r"(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.(\d+))?(?:Z|[+-]\d{2}:\d{2})?").unwrap()
+});
+// 2025-04-21 10:08:00
+static DATE_REGEX_SQL: Lazy<regex::Regex> =
+    Lazy::new(|| regex::Regex::new(r"(\d{4})-(\d{2})-(\d{2})(?: |T)(\d{2}):(\d{2}):(\d{2})").unwrap());
+
+fn parse_timestamp_string(s: &str) -> NaiveDateTime {
+    // First try the exact format
+    if let Ok(dt) = NaiveDateTime::parse_from_str(s, "%Y-%m-%dT%H:%M:%S.%3fZ") {
+        return dt;
+    }
+    
+    // Then try flexible ISO format with regex
+    if let Some(caps) = DATE_REGEX_ISO.captures(s) {
+        let year: i32 = caps.get(1).and_then(|m| m.as_str().parse().ok()).unwrap_or(1970);
+        let month: u32 = caps.get(2).and_then(|m| m.as_str().parse().ok()).unwrap_or(1);
+        let day: u32 = caps.get(3).and_then(|m| m.as_str().parse().ok()).unwrap_or(1);
+        let hour: u32 = caps.get(4).and_then(|m| m.as_str().parse().ok()).unwrap_or(0);
+        let min: u32 = caps.get(5).and_then(|m| m.as_str().parse().ok()).unwrap_or(0);
+        let sec: u32 = caps.get(6).and_then(|m| m.as_str().parse().ok()).unwrap_or(0);
+        let micro: u32 = caps.get(7)
+            .map(|m| {
+                let ms = m.as_str();
+                // Pad with zeros to make it exactly 6 digits for microseconds
+                let padded = format!("{:0<6}", &ms);
+                padded.parse().unwrap_or(0)
+            })
+            .unwrap_or(0);
+            
+        if let Some(dt) = NaiveDateTime::from_opt(year, month, day, hour, min, sec, micro * 1000) {
+            return dt;
+        }
+    }
+    
+    // Try SQL format (YYYY-MM-DD HH:MM:SS)
+    if let Some(caps) = DATE_REGEX_SQL.captures(s) {
+        let year: i32 = caps.get(1).and_then(|m| m.as_str().parse().ok()).unwrap_or(1970);
+        let month: u32 = caps.get(2).and_then(|m| m.as_str().parse().ok()).unwrap_or(1);
+        let day: u32 = caps.get(3).and_then(|m| m.as_str().parse().ok()).unwrap_or(1);
+        let hour: u32 = caps.get(4).and_then(|m| m.as_str().parse().ok()).unwrap_or(0);
+        let min: u32 = caps.get(5).and_then(|m| m.as_str().parse().ok()).unwrap_or(0);
+        let sec: u32 = caps.get(6).and_then(|m| m.as_str().parse().ok()).unwrap_or(0);
+        
+        if let Some(dt) = NaiveDateTime::from_opt(year, month, day, hour, min, sec, 0) {
+            return dt;
+        }
+    }
+    
+    // As a last resort, try a variety of formats
+    for fmt in &[
+        "%Y-%m-%dT%H:%M:%S%.fZ",
+        "%Y-%m-%dT%H:%M:%SZ",
+        "%Y-%m-%d %H:%M:%S",
+        "%Y-%m-%d %H:%M:%S%.f",
+        "%Y-%m-%dT%H:%M:%S",
+        "%Y-%m-%dT%H:%M:%S%.f",
+    ] {
+        if let Ok(dt) = NaiveDateTime::parse_from_str(s, fmt) {
+            return dt;
+        }
+    }
+    
+    // Default if nothing matches
+    NaiveDateTime::default()
 }
 
 // you can remove this section if not using TS_VECTOR (or other types requiring an intermediary `FromSQL` struct)
