@@ -34,5 +34,5 @@ jobs:
         with:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
           timeout_minutes: "60"
-          custom_instructions: "If you create a PR, the title must start with [Claude PR]"
+          custom_instructions: "After your changes, automatically create a PR from you new branch to main, with the title starting with [Claude PR]"
           trigger_phrase: "/aider"
