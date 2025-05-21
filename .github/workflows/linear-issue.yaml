@@ -11,7 +11,9 @@ jobs:
       contents: write
       pull-requests: write
     outputs:
-      prompt_content: ${{ steps.prepare_prompt.outputs.prompt_content }}
+      issue_title: ${{ steps.determine_inputs.outputs.ISSUE_TITLE }}
+      issue_body: ${{ steps.determine_inputs.outputs.ISSUE_BODY }}
+      instruction: ${{ steps.determine_inputs.outputs.INSTRUCTION }}
     env:
       GEMINI_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
       GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
@@ -56,57 +58,12 @@ jobs:
           echo "EOF_AIDER_INSTRUCTION" >> "$GITHUB_OUTPUT"
           echo "Finished determining inputs."
 
-      - name: Probe Chat for Relevant Files
-        id: probe_files
-        env:
-          PROMPT_CONTENT_FILE: ${{ steps.create_prompt.outputs.PROMPT_FILE_PATH }}
-        run: |
-          echo "Running probe-chat to find relevant files..."
-          if [[ ! -f "$PROMPT_CONTENT_FILE" ]]; then
-            echo "::error::Prompt file $PROMPT_CONTENT_FILE not found!"
-            exit 1
-          fi
-          PROMPT_CONTENT=$(cat "$PROMPT_CONTENT_FILE")
-          if [ -z "$PROMPT_CONTENT" ]; then
-             echo "::error::Prompt content is empty!"
-             exit 1
-          fi
-
-          PROMPT_ESCAPED=$(jq -Rs . <<< "$PROMPT_CONTENT")
-
-          MESSAGE_FOR_PROBE=$(jq -n --arg prompt_escaped "$PROMPT_ESCAPED" \
-            '{ "message": "I'\''m giving you a request that needs to be implemented. Your role is ONLY to give me the files that are relevant to the request and nothing else. The request is prepended with the word REQUEST.\\nREQUEST: \($prompt_escaped). Give me all the files relevant to this request. Your output MUST be a single json array that can be parsed with programatic json parsing, with the relevant files. Files can be rust or typescript or javascript files. DO NOT INCLUDE ANY OTHER TEXT IN YOUR OUTPUT. ONLY THE JSON ARRAY. Example of output: [\"file1.py\", \"file2.py\"]" }' | jq -r .message)
-
-          set -o pipefail
-          PROBE_OUTPUT=$(npx --yes @buger/probe-chat@latest --max-iterations 50 --model-name gemini-2.5-pro-preview-05-06 --message "$MESSAGE_FOR_PROBE") || {
-            echo "::error::probe-chat command failed. Output:"
-            echo "$PROBE_OUTPUT"
-            exit 1
-          }
-          set +o pipefail
-          echo "Probe-chat raw output:"
-          echo "$PROBE_OUTPUT"
-
-          JSON_FILES=$(echo "$PROBE_OUTPUT" | sed -n '/^\s*\[/,$p' | sed '/^\s*\]/q')
-          echo "Extracted JSON block:"
-          echo "$JSON_FILES"
-
-          FILES_LIST=$(echo "$JSON_FILES" | jq -e -r '[.[] | select(type == "string" and . != "" and . != null and (endswith("/") | not))] | map(@sh) | join(" ")' || echo "")
-
-          if [[ -z "$FILES_LIST" ]]; then
-             echo "::warning::probe-chat did not identify any relevant files."
-             exit 1
-          fi
-
-          echo "Formatted files list for aider: $FILES_LIST"
-          echo "FILES_TO_EDIT=$FILES_LIST" >> $GITHUB_ENV
-
   run-aider:
     needs: check-and-prepare
     uses: ./.github/workflows/aider-common.yml
     with:
       issue_title: ${{ needs.check-and-prepare.outputs.issue_title }}
       issue_body: ${{ needs.check-and-prepare.outputs.issue_body }}
-      instruction: ${{ needs.check-and-prepare.outputs.comment_content }}
+      instruction: ${{ needs.check-and-prepare.outputs.instruction }}
       issue_id: ${{ github.event.client_payload.issue_id }}
     secrets: inherit
