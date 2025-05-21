@@ -50,6 +50,14 @@ jobs:
           echo "Successfully checked out branch $(git rev-parse --abbrev-ref HEAD)"
           echo "PR_BRANCH=$PR_HEAD_REF" >> $GITHUB_OUTPUT
 
+      - name: Acknowledge Request
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+        run: |
+          echo "Commenting on issue/PR #${{ github.event.issue.number }} to acknowledge the /aider command."
+          gh issue comment ${{ github.event.issue.number }} --body "🤖 Aider is starting to work on your request. I'll update you here once I have a PR ready. Please be patient, this might take a few minutes." --repo $GITHUB_REPOSITORY
+
       - name: Determine inputs for Aider
         id: determine_inputs
         shell: bash

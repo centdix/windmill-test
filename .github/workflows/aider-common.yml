@@ -297,3 +297,14 @@ jobs:
             --body-file /tmp/pr-description.md \
             --head "$PR_BRANCH" \
             --base main
+          PR_URL=$(gh pr view $PR_BRANCH --json url --jq .url)
+          echo "PR_URL=$PR_URL" >> $GITHUB_OUTPUT
+
+      - name: Comment on issue/PR to let the user know Aider has finished working on the request
+        if: success() && github.event_name == 'issue_comment' && !github.event.issue.pull_request && steps.commit_and_push.outputs.PR_BRANCH_NAME != ''
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+        run: |
+          echo "Commenting on issue/PR #${{ github.event.issue.number }} to let the user know Aider has finished working on the request."
+          gh issue comment ${{ github.event.issue.number }} --body "🤖 Aider has finished working on your request. You can view the PR [here](${steps.commit_and_push.outputs.PR_URL})." --repo $GITHUB_REPOSITORY
