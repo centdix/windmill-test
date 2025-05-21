@@ -217,6 +217,7 @@ jobs:
         run: |
 
           echo "$FINAL_PROMPT" > .aider_final_prompt.txt
+          echo "FILES_TO_EDIT: $FILES_TO_EDIT"
 
           aider \
             --read .cursor/rules/rust-best-practices.mdc \
@@ -265,21 +266,27 @@ jobs:
             echo "PR_BRANCH_NAME=$BRANCH_NAME" >> $GITHUB_OUTPUT
             echo "CHANGES_APPLIED_MESSAGE=Aider changes pushed to branch $BRANCH_NAME." >> $GITHUB_OUTPUT
           else
-            CURRENT_BRANCH_NAME=$(git rev-parse --abbrev-ref HEAD)
-            echo "Attempting to push changes to PR branch $CURRENT_BRANCH_NAME for PR #${{ github.event.issue.number }}"
-
-            # Pull latest changes to avoid rejection due to non-fast-forward
+            # We're in a pull_request_review event
+            PR_NUMBER="${{ github.event.pull_request.number }}"
+            PR_HEAD_REF="${{ github.event.pull_request.head.ref }}"
+            
+            echo "Handling pull_request_review for PR #$PR_NUMBER on branch $PR_HEAD_REF"
+            
+            # Ensure we're on the correct branch
             git config pull.rebase true
-            git pull origin $CURRENT_BRANCH_NAME
-
-            if git push origin $CURRENT_BRANCH_NAME; then
-              echo "Push to $CURRENT_BRANCH_NAME successful (or no new changes to push)."
-              echo "CHANGES_APPLIED_MESSAGE=Aider changes (if any) pushed to PR branch $CURRENT_BRANCH_NAME." >> $GITHUB_OUTPUT
-              echo "PR_BRANCH_NAME=$CURRENT_BRANCH_NAME" >> $GITHUB_OUTPUT
+            git fetch origin $PR_HEAD_REF
+            git checkout $PR_HEAD_REF
+            git pull origin $PR_HEAD_REF
+            
+            echo "Attempting to push changes to PR branch $PR_HEAD_REF for PR #$PR_NUMBER"
+            if git push origin $PR_HEAD_REF; then
+              echo "Push to $PR_HEAD_REF successful (or no new changes to push)."
+              echo "CHANGES_APPLIED_MESSAGE=Aider changes (if any) pushed to PR branch $PR_HEAD_REF." >> $GITHUB_OUTPUT
+              echo "PR_BRANCH_NAME=$PR_HEAD_REF" >> $GITHUB_OUTPUT
               echo "CHANGES_APPLIED=true" >> $GITHUB_OUTPUT
             else
-              echo "::warning::Push to PR branch $CURRENT_BRANCH_NAME failed."
-              echo "CHANGES_APPLIED_MESSAGE=Aider ran, but failed to push changes to PR branch $CURRENT_BRANCH_NAME." >> $GITHUB_OUTPUT
+              echo "::warning::Push to PR branch $PR_HEAD_REF failed."
+              echo "CHANGES_APPLIED_MESSAGE=Aider ran, but failed to push changes to PR branch $PR_HEAD_REF." >> $GITHUB_OUTPUT
               echo "CHANGES_APPLIED=false" >> $GITHUB_OUTPUT
             fi
           fi
