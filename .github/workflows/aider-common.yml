@@ -80,50 +80,68 @@ jobs:
 
       - name: Create Prompt for Aider
         id: create_prompt
-        if: inputs.issue_title != '' && inputs.issue_body != ''
+        if: "${{ inputs.issue_title != '' && inputs.issue_body != '' }}"
         shell: bash
         env:
+          BASE_PROMPT_ENV: ${{ inputs.base_prompt }}
+          ISSUE_TITLE_ENV: ${{ inputs.issue_title }}
+          ISSUE_BODY_ENV: ${{ inputs.issue_body }}
+          INSTRUCTION_ENV: ${{ inputs.instruction }}
+          NEEDS_PROCESSING_ENV: ${{ inputs.needs_processing }}
           WINDMILL_TOKEN: ${{ secrets.WINDMILL_TOKEN }}
         run: |
-          BASE_PROMPT="${{ inputs.base_prompt }}"
-          ISSUE_TITLE="${{ inputs.issue_title }}"
-          INSTRUCTION="${{ inputs.instruction }}"
-          ISSUE_BODY=$(printf '%q' "${{ inputs.issue_body }}")
+          set -e
+          echo "Processing issue with title: $ISSUE_TITLE_ENV"
 
-          echo "Processing issue with title: $ISSUE_TITLE"
-          if inputs.needs_processing; then
+          FINAL_PROMPT_CONTENT=""
+
+          if [[ "$NEEDS_PROCESSING_ENV" == "true" ]]; then
+            echo "Needs processing is true. Calling Windmill API..."
             JSON_PAYLOAD=$(jq -n \
-              --arg title "$ISSUE_TITLE" \
-              --arg body "$ISSUE_BODY" \
+              --arg title "$ISSUE_TITLE_ENV" \
+              --arg body "$ISSUE_BODY_ENV" \
               '{"body":{"issue_title":$title,"issue_body":$body}}')
 
-            API_RESULT=$(curl -s -w "\n%{http_code}" \
+            echo "Windmill JSON Payload: $JSON_PAYLOAD"
+
+            API_RESULT_FILE=$(mktemp)
+            HTTP_CODE=$(curl -s -o "$API_RESULT_FILE" -w "%{http_code}" \
               -X POST "https://app.windmill.dev/api/w/windmill-labs/jobs/run_wait_result/p/f/ai/quiet_script" \
               -H "Content-Type: application/json" \
               -H "Authorization: Bearer $WINDMILL_TOKEN" \
               --data-binary "$JSON_PAYLOAD" \
               --max-time 90)
+            
+            BODY_CONTENT=$(cat "$API_RESULT_FILE")
+            rm -f "$API_RESULT_FILE" # Clean up temp file
 
-            HTTP_CODE=$(echo "$API_RESULT" | tail -n1)
-            BODY=$(echo "$API_RESULT" | sed '$d')
-            echo "$BODY" > /tmp/api_response.txt
-
+            echo "Windmill API HTTP Code: $HTTP_CODE"
             if [[ "$HTTP_CODE" -eq 200 ]]; then
-              PROCESSED_ISSUE_PROMPT=$(jq -r '.effective_body // empty' /tmp/api_response.txt)
-            if [[ -z "$PROCESSED_ISSUE_PROMPT" || "$PROCESSED_ISSUE_PROMPT" == "null" ]]; then
-              PROCESSED_ISSUE_PROMPT=""
+              PROCESSED_ISSUE_PROMPT=$(echo "$BODY_CONTENT" | jq -r '.effective_body // empty')
+              if [[ -z "$PROCESSED_ISSUE_PROMPT" || "$PROCESSED_ISSUE_PROMPT" == "null" ]]; then
+                echo "::warning::Windmill API returned 200 but effective_body was empty or null."
+                EFFECTIVE_ISSUE_CONTENT_FOR_PROMPT="$ISSUE_BODY_ENV"
+              else
+                echo "Successfully processed issue via Windmill API."
+                EFFECTIVE_ISSUE_CONTENT_FOR_PROMPT="$PROCESSED_ISSUE_PROMPT"
+              fi
+              FINAL_PROMPT_CONTENT=$(printf "%s\nISSUE:\n%s\nINSTRUCTION:\n%s" \
+                "$BASE_PROMPT_ENV" "$EFFECTIVE_ISSUE_CONTENT_FOR_PROMPT" "$INSTRUCTION_ENV")
+            else
+              echo "::error::Windmill API call failed (HTTP $HTTP_CODE). Using raw issue content for prompt."
+              FINAL_PROMPT_CONTENT=$(printf "%s\nISSUE:\n%s\nINSTRUCTION:\n%s" \
+                "$BASE_PROMPT_ENV" "$ISSUE_BODY_ENV" "$INSTRUCTION_ENV")
             fi
-            FINAL_PROMPT=$(printf "%s\nISSUE:\n%s\nINSTRUCTION:\n%s" \
-              "$BASE_PROMPT" "$PROCESSED_ISSUE_PROMPT" "$INSTRUCTION")
           else
-            echo "::warning::API call failed (HTTP $HTTP_CODE). Using raw issue content."
-            FINAL_PROMPT=$(printf "%s\nISSUE:\n%s\nINSTRUCTION:\n%s" \
-              "$BASE_PROMPT" "$ISSUE_BODY" "$INSTRUCTION")
+            echo "Needs processing is false. Using raw issue content for prompt."
+            FINAL_PROMPT_CONTENT=$(printf "%s\nISSUE:\n%s\nINSTRUCTION:\n%s" \
+              "$BASE_PROMPT_ENV" "$ISSUE_BODY_ENV" "$INSTRUCTION_ENV")
           fi
-          rm -f /tmp/api_response.txt
 
-          echo "Final prompt created and written to $FINAL_PROMPT"
-          echo "final_prompt=$FINAL_PROMPT" >> $GITHUB_OUTPUT
+          echo "Final prompt content determined."
+          echo "final_prompt<<EOF_AIDER_PROMPT" >> "$GITHUB_OUTPUT"
+          echo "$FINAL_PROMPT_CONTENT" >> "$GITHUB_OUTPUT"
+          echo "EOF_AIDER_PROMPT" >> "$GITHUB_OUTPUT"
 
       - name: Probe Chat for Relevant Files
         id: probe_files
