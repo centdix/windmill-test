@@ -1,0 +1,1 @@
+// OSS implementation for teams module
