@@ -68,9 +68,10 @@ jobs:
             "$BASE_PROMPT" "$REVIEW_BODY_Q" "$ALL_REVIEW_COMMENTS")
           echo "PROMPT_CONTENT=$COMPLETE_PROMPT" >> $GITHUB_OUTPUT
 
-    run-aider:
-      needs: check-and-prepare
-      uses: ./.github/workflows/aider-common.yml
-      with:
-        needs_processing: false
-        base_prompt: ${{ needs.check-and-prepare.outputs.prompt_content }}
+  run-aider:
+    needs: check-and-prepare
+    uses: ./.github/workflows/aider-common.yml
+    with:
+      needs_processing: false
+      base_prompt: ${{ needs.check-and-prepare.outputs.prompt_content }}
+    secrets: inherit
