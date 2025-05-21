@@ -1,0 +1,186 @@
+name: Aider Common Steps
+
+on:
+  workflow_call:
+    inputs:
+      issue_title:
+        description: "Title of the issue or PR"
+        required: false
+        type: string
+      issue_body:
+        description: "Body of the issue or PR"
+        required: false
+        type: string
+      instruction:
+        description: "Instruction for Aider"
+        required: false
+        type: string
+      needs_processing:
+        description: "Whether the issue needs to be processed by the external API"
+        required: false
+        type: boolean
+        default: true
+      base_prompt:
+        description: "Base prompt for Aider"
+        required: false
+        type: string
+        default: "Try to fix the following issue based on the instruction given by the user. The issue is prepended with the word ISSUE. The instruction is prepended with the word INSTRUCTION. The issue and instruction are separated by a blank line."
+      probe_prompt:
+        description: "Prompt for probe-chat"
+        required: false
+        type: string
+        default: 'I''m giving you a request that needs to be implemented. Your role is ONLY to give me the files that are relevant to the request and nothing else. The request is prepended with the word REQUEST. REQUEST: $FINAL_PROMPT. Give me all the files relevant to this request. Your output MUST be a single json array that can be parsed with programatic json parsing, with the relevant files. Files can be rust or typescript or javascript files. DO NOT INCLUDE ANY OTHER TEXT IN YOUR OUTPUT. ONLY THE JSON ARRAY. Example of output: ["file1.py", "file2.py"]'
+    outputs:
+      files_to_edit:
+        description: "Files identified by probe-chat for editing"
+        value: ${{ jobs.common-steps.outputs.files_to_edit }}
+      final_prompt:
+        description: "Final prompt for Aider"
+        value: ${{ jobs.common-steps.outputs.final_prompt }}
+
+jobs:
+  common-steps:
+    runs-on: ubicloud-standard-8
+    outputs:
+      files_to_edit: ${{ steps.probe_files.outputs.files_to_edit }}
+      final_prompt: ${{ steps.create_prompt.outputs.final_prompt }}
+    env:
+      GEMINI_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
+      GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      WINDMILL_TOKEN: ${{ secrets.WINDMILL_TOKEN }}
+
+    steps:
+      - name: Harden Runner
+        uses: step-security/harden-runner@v2
+        with:
+          egress-policy: audit
+
+      - name: Check out code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Configure Git User
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install Aider and Dependencies
+        run: |
+          python -m pip install aider-install; aider-install
+          pip install -U google-generativeai
+          sudo apt-get update && sudo apt-get install -y jq
+
+      - name: Create Prompt for Aider
+        id: create_prompt
+        if: inputs.issue_title != '' && inputs.issue_body != ''
+        shell: bash
+        env:
+          WINDMILL_TOKEN: ${{ secrets.WINDMILL_TOKEN }}
+        run: |
+          BASE_PROMPT="${{ inputs.base_prompt }}"
+          ISSUE_TITLE="${{ inputs.issue_title }}"
+          INSTRUCTION="${{ inputs.instruction }}"
+          ISSUE_BODY=$(printf '%q' "${{ inputs.issue_body }}")
+
+          echo "Processing issue with title: $ISSUE_TITLE"
+          if inputs.needs_processing; then
+            JSON_PAYLOAD=$(jq -n \
+              --arg title "$ISSUE_TITLE" \
+              --arg body "$ISSUE_BODY" \
+              '{"body":{"issue_title":$title,"issue_body":$body}}')
+
+            API_RESULT=$(curl -s -w "\n%{http_code}" \
+              -X POST "https://app.windmill.dev/api/w/windmill-labs/jobs/run_wait_result/p/f/ai/quiet_script" \
+              -H "Content-Type: application/json" \
+              -H "Authorization: Bearer $WINDMILL_TOKEN" \
+              --data-binary "$JSON_PAYLOAD" \
+              --max-time 90)
+
+            HTTP_CODE=$(echo "$API_RESULT" | tail -n1)
+            BODY=$(echo "$API_RESULT" | sed '$d')
+            echo "$BODY" > /tmp/api_response.txt
+
+            if [[ "$HTTP_CODE" -eq 200 ]]; then
+              PROCESSED_ISSUE_PROMPT=$(jq -r '.effective_body // empty' /tmp/api_response.txt)
+            if [[ -z "$PROCESSED_ISSUE_PROMPT" || "$PROCESSED_ISSUE_PROMPT" == "null" ]]; then
+              PROCESSED_ISSUE_PROMPT=""
+            fi
+            FINAL_PROMPT=$(printf "%s\nISSUE:\n%s\nINSTRUCTION:\n%s" \
+              "$BASE_PROMPT" "$PROCESSED_ISSUE_PROMPT" "$INSTRUCTION")
+          else
+            echo "::warning::API call failed (HTTP $HTTP_CODE). Using raw issue content."
+            FINAL_PROMPT=$(printf "%s\nISSUE:\n%s\nINSTRUCTION:\n%s" \
+              "$BASE_PROMPT" "$ISSUE_BODY" "$INSTRUCTION")
+          fi
+          rm -f /tmp/api_response.txt
+
+          echo "Final prompt created and written to $FINAL_PROMPT"
+          echo "final_prompt=$FINAL_PROMPT" >> $GITHUB_OUTPUT
+
+      - name: Probe Chat for Relevant Files
+        id: probe_files
+        shell: bash
+        env:
+          FINAL_PROMPT: ${{ steps.create_prompt.outputs.final_prompt }}
+        run: |
+          echo "Running probe-chat to find relevant files..."
+
+          # escape the final prompt
+          printf -v MESSAGE_FOR_PROBE 'I'\''m giving you a request that needs to be implemented. Your role is ONLY to give me the files that are relevant to the request and nothing else. The request is prepended with the word REQUEST.\nREQUEST: %s. Give me all the files relevant to this request. Your output MUST be a single json array that can be parsed with programatic json parsing, with the relevant files. Files can be rust or typescript or javascript files. DO NOT INCLUDE ANY OTHER TEXT IN YOUR OUTPUT. ONLY THE JSON ARRAY. Example of output: ["file1.py", "file2.py"]' "$FINAL_PROMPT"
+
+          set -o pipefail
+          PROBE_OUTPUT=$(npx --yes @buger/probe-chat@latest --max-iterations 50 --model-name gemini-2.5-pro-preview-05-06 --message "$MESSAGE_FOR_PROBE") || {
+            echo "::error::probe-chat command failed. Output:"
+            echo "$PROBE_OUTPUT"
+            exit 1
+          }
+          set +o pipefail
+          echo "Probe-chat raw output:"
+          echo "$PROBE_OUTPUT"
+
+          JSON_FILES=$(echo "$PROBE_OUTPUT" | sed -n '/^\s*\[/,$p' | sed '/^\s*\]/q')
+          echo "Extracted JSON block:"
+          echo "$JSON_FILES"
+
+          FILES_LIST=$(echo "$JSON_FILES" | jq -e -r '[.[] | select(type == "string" and . != "" and . != null and (endswith("/") | not))] | map(@sh) | join(" ")' || echo "")
+
+          if [[ -z "$FILES_LIST" ]]; then
+             echo "::warning::probe-chat did not identify any relevant files."
+          fi
+
+          echo "Formatted files list for aider: $FILES_LIST"
+          echo "files_to_edit=$FILES_LIST" >> $GITHUB_OUTPUT
+
+      - name: Run Aider
+        id: run_aider
+        shell: bash
+        env:
+          FILES_TO_EDIT: ${{ steps.probe_files.outputs.files_to_edit }}
+          FINAL_PROMPT: ${{ steps.create_prompt.outputs.final_prompt }}
+        run: |
+
+          echo "$FINAL_PROMPT" > .aider_final_prompt.txt
+
+          aider \
+            --read .cursor/rules/rust-best-practices.mdc \
+            --read .cursor/rules/svelte5-best-practices.mdc \
+            --read .cursor/rules/windmill-overview.mdc \
+            $FILES_TO_EDIT \
+            --model gemini/gemini-2.5-pro-preview-05-06 \
+            --message-file .aider_final_prompt.txt \
+            --yes \
+            --no-check-update \
+            --auto-commits \
+            --no-analytics \
+            --no-gitignore \
+            | tee .github/aider/aider-output.txt || true
+
+          echo "Aider command completed. Output saved to .github/aider/aider-output.txt"
