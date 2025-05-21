@@ -138,7 +138,7 @@ jobs:
               "$BASE_PROMPT_ENV" "$ISSUE_BODY_ENV" "$INSTRUCTION_ENV")
           fi
 
-          echo "Final prompt content determined."
+          echo "Final prompt: $FINAL_PROMPT_CONTENT"
           echo "final_prompt<<EOF_AIDER_PROMPT" >> "$GITHUB_OUTPUT"
           echo "$FINAL_PROMPT_CONTENT" >> "$GITHUB_OUTPUT"
           echo "EOF_AIDER_PROMPT" >> "$GITHUB_OUTPUT"
@@ -202,3 +202,13 @@ jobs:
             | tee .github/aider/aider-output.txt || true
 
           echo "Aider command completed. Output saved to .github/aider/aider-output.txt"
+
+      - name: Create aider output directory if it doesn't exist
+        run: mkdir -p .github/aider
+
+      - name: Save working directory as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: repo-after-aider
+          path: .
+          retention-days: 1

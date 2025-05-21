@@ -139,6 +139,17 @@ jobs:
       GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
+      - name: Download repository with aider changes
+        uses: actions/download-artifact@v4
+        with:
+          name: repo-after-aider
+          path: .
+
+      - name: Configure Git User
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+
       - name: Commit and Push Changes
         id: commit_and_push
         run: |
