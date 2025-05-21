@@ -21,6 +21,14 @@ jobs:
       WINDMILL_TOKEN: ${{ secrets.WINDMILL_TOKEN }}
 
     steps:
+      - name: Acknowledge Request
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+        run: |
+          echo "Commenting on PR #${{ github.event.pull_request.number }} to acknowledge the /aider command."
+          gh pr comment ${{ github.event.pull_request.number }} --body "🤖 Aider is starting to work on your request. Please be patient, this might take a few minutes." --repo $GITHUB_REPOSITORY
+
       - name: Checkout repository
         uses: actions/checkout@v4
 
@@ -39,14 +47,6 @@ jobs:
           git fetch origin "refs/heads/${PR_HEAD_REF}:refs/remotes/origin/${PR_HEAD_REF}" --no-tags
           git checkout "$PR_HEAD_REF"
           echo "Successfully checked out branch $(git rev-parse --abbrev-ref HEAD)"
-
-      - name: Acknowledge Request
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GITHUB_REPOSITORY: ${{ github.repository }}
-        run: |
-          echo "Commenting on PR #${{ github.event.pull_request.number }} to acknowledge the /aider command."
-          gh pr comment ${{ github.event.pull_request.number }} --body "🤖 Aider is starting to work on your request. Please be patient, this might take a few minutes." --repo $GITHUB_REPOSITORY
 
       - name: Prepare prompt for Aider
         id: prepare_prompt
