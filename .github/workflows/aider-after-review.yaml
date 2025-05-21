@@ -67,6 +67,8 @@ jobs:
           printf -v COMPLETE_PROMPT "%s\nREVIEW:\n%s\nREVIEW_COMMENTS:\n%s" \
             "$BASE_PROMPT" "$REVIEW_BODY_Q" "$ALL_REVIEW_COMMENTS"
 
+          echo "$COMPLETE_PROMPT"
+
           # Use the proper multi-line output format
           echo "prompt_content<<EOF" >> $GITHUB_OUTPUT
           echo "$COMPLETE_PROMPT" >> $GITHUB_OUTPUT
