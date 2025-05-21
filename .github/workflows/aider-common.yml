@@ -322,6 +322,12 @@ jobs:
           ISSUE_NUM: ${{ inputs.issue_id }}
           ISSUE_TITLE: ${{ inputs.issue_title }}
         run: |
+          # Debug: Check latest commit and branch status
+          echo "Checking latest commit on branch $PR_BRANCH"
+          git log -1 --pretty=format:"%h - %an, %ar : %s"
+          echo "Changes not yet committed:"
+          git status --porcelain
+
           # Create PR description in a temporary file to avoid command line length limits and ensure it stays under 40k chars
           cat > /tmp/pr-description.md << EOL | head -c 40000
           This PR was created automatically by Aider to fix issue #${ISSUE_NUM}.
