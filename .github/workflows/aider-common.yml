@@ -43,6 +43,9 @@ on:
       changes_applied_message:
         description: "Message indicating changes were applied"
         value: ${{ jobs.common-steps.outputs.changes_applied_message }}
+      changes_applied:
+        description: "Boolean indicating if changes were successfully applied"
+        value: ${{ jobs.common-steps.outputs.changes_applied }}
 
 jobs:
   common-steps:
@@ -52,6 +55,7 @@ jobs:
       final_prompt: ${{ steps.create_prompt.outputs.final_prompt }}
       pr_branch_name: ${{ steps.commit_and_push.outputs.PR_BRANCH_NAME }}
       changes_applied_message: ${{ steps.commit_and_push.outputs.CHANGES_APPLIED_MESSAGE }}
+      changes_applied: ${{ steps.commit_and_push.outputs.CHANGES_APPLIED }}
     env:
       GEMINI_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
       GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
@@ -96,7 +100,6 @@ jobs:
 
       - name: Create Prompt for Aider
         id: create_prompt
-        if: "${{ inputs.issue_title != '' && inputs.issue_body != '' }}"
         shell: bash
         env:
           BASE_PROMPT_ENV: ${{ inputs.base_prompt }}
@@ -107,51 +110,55 @@ jobs:
           WINDMILL_TOKEN: ${{ secrets.WINDMILL_TOKEN }}
         run: |
           set -e
-          echo "Processing issue with title: $ISSUE_TITLE_ENV"
-
           FINAL_PROMPT_CONTENT=""
 
-          if [[ "$NEEDS_PROCESSING_ENV" == "true" ]]; then
-            echo "Needs processing is true. Calling Windmill API..."
-            JSON_PAYLOAD=$(jq -n \
-              --arg title "$ISSUE_TITLE_ENV" \
-              --arg body "$ISSUE_BODY_ENV" \
-              '{"body":{"issue_title":$title,"issue_body":$body}}')
+          if [[ "$ISSUE_TITLE_ENV" != "" && "$ISSUE_BODY_ENV" != "" ]]; then
+            echo "Processing issue with title: $ISSUE_TITLE_ENV"
+            if [[ "$NEEDS_PROCESSING_ENV" == "true" ]]; then
+              echo "Needs processing is true. Calling Windmill API..."
+              JSON_PAYLOAD=$(jq -n \
+                --arg title "$ISSUE_TITLE_ENV" \
+                --arg body "$ISSUE_BODY_ENV" \
+                '{"body":{"issue_title":$title,"issue_body":$body}}')
 
-            echo "Windmill JSON Payload: $JSON_PAYLOAD"
+              echo "Windmill JSON Payload: $JSON_PAYLOAD"
 
-            API_RESULT_FILE=$(mktemp)
-            HTTP_CODE=$(curl -s -o "$API_RESULT_FILE" -w "%{http_code}" \
-              -X POST "https://app.windmill.dev/api/w/windmill-labs/jobs/run_wait_result/p/f/ai/quiet_script" \
-              -H "Content-Type: application/json" \
-              -H "Authorization: Bearer $WINDMILL_TOKEN" \
-              --data-binary "$JSON_PAYLOAD" \
-              --max-time 90)
-            
-            BODY_CONTENT=$(cat "$API_RESULT_FILE")
-            rm -f "$API_RESULT_FILE" # Clean up temp file
+              API_RESULT_FILE=$(mktemp)
+              HTTP_CODE=$(curl -s -o "$API_RESULT_FILE" -w "%{http_code}" \
+                -X POST "https://app.windmill.dev/api/w/windmill-labs/jobs/run_wait_result/p/f/ai/quiet_script" \
+                -H "Content-Type: application/json" \
+                -H "Authorization: Bearer $WINDMILL_TOKEN" \
+                --data-binary "$JSON_PAYLOAD" \
+                --max-time 90)
+              
+              BODY_CONTENT=$(cat "$API_RESULT_FILE")
+              rm -f "$API_RESULT_FILE" # Clean up temp file
 
-            echo "Windmill API HTTP Code: $HTTP_CODE"
-            if [[ "$HTTP_CODE" -eq 200 ]]; then
-              PROCESSED_ISSUE_PROMPT=$(echo "$BODY_CONTENT" | jq -r '.effective_body // empty')
-              if [[ -z "$PROCESSED_ISSUE_PROMPT" || "$PROCESSED_ISSUE_PROMPT" == "null" ]]; then
-                echo "::warning::Windmill API returned 200 but effective_body was empty or null."
-                EFFECTIVE_ISSUE_CONTENT_FOR_PROMPT="$ISSUE_BODY_ENV"
+              echo "Windmill API HTTP Code: $HTTP_CODE"
+              if [[ "$HTTP_CODE" -eq 200 ]]; then
+                PROCESSED_ISSUE_PROMPT=$(echo "$BODY_CONTENT" | jq -r '.effective_body // empty')
+                if [[ -z "$PROCESSED_ISSUE_PROMPT" || "$PROCESSED_ISSUE_PROMPT" == "null" ]]; then
+                  echo "::warning::Windmill API returned 200 but effective_body was empty or null."
+                  EFFECTIVE_ISSUE_CONTENT_FOR_PROMPT="$ISSUE_BODY_ENV"
+                else
+                  echo "Successfully processed issue via Windmill API."
+                  EFFECTIVE_ISSUE_CONTENT_FOR_PROMPT="$PROCESSED_ISSUE_PROMPT"
+                fi
+                FINAL_PROMPT_CONTENT=$(printf "%s\nISSUE:\n%s\nINSTRUCTION:\n%s" \
+                  "$BASE_PROMPT_ENV" "$EFFECTIVE_ISSUE_CONTENT_FOR_PROMPT" "$INSTRUCTION_ENV")
               else
-                echo "Successfully processed issue via Windmill API."
-                EFFECTIVE_ISSUE_CONTENT_FOR_PROMPT="$PROCESSED_ISSUE_PROMPT"
+                echo "::error::Windmill API call failed (HTTP $HTTP_CODE). Using raw issue content for prompt."
+                FINAL_PROMPT_CONTENT=$(printf "%s\nISSUE:\n%s\nINSTRUCTION:\n%s" \
+                  "$BASE_PROMPT_ENV" "$ISSUE_BODY_ENV" "$INSTRUCTION_ENV")
               fi
-              FINAL_PROMPT_CONTENT=$(printf "%s\nISSUE:\n%s\nINSTRUCTION:\n%s" \
-                "$BASE_PROMPT_ENV" "$EFFECTIVE_ISSUE_CONTENT_FOR_PROMPT" "$INSTRUCTION_ENV")
             else
-              echo "::error::Windmill API call failed (HTTP $HTTP_CODE). Using raw issue content for prompt."
+              echo "Needs processing is false. Using raw issue content for prompt."
               FINAL_PROMPT_CONTENT=$(printf "%s\nISSUE:\n%s\nINSTRUCTION:\n%s" \
                 "$BASE_PROMPT_ENV" "$ISSUE_BODY_ENV" "$INSTRUCTION_ENV")
             fi
           else
-            echo "Needs processing is false. Using raw issue content for prompt."
-            FINAL_PROMPT_CONTENT=$(printf "%s\nISSUE:\n%s\nINSTRUCTION:\n%s" \
-              "$BASE_PROMPT_ENV" "$ISSUE_BODY_ENV" "$INSTRUCTION_ENV")
+            echo "No issue title or body given. Using base prompt."
+            FINAL_PROMPT_CONTENT="$BASE_PROMPT_ENV"
           fi
 
           echo "Final prompt: $FINAL_PROMPT_CONTENT"
@@ -193,6 +200,14 @@ jobs:
           echo "Formatted files list for aider: $FILES_LIST"
           echo "files_to_edit=$FILES_LIST" >> $GITHUB_OUTPUT
 
+      - name: Cache Aider tags
+        uses: actions/cache@v3
+        with:
+          path: .aider.tags.cache.v4
+          key: ${{ runner.os }}-aider-${{ github.sha }}
+          restore-keys: |
+            ${{ runner.os }}-aider-
+
       - name: Run Aider
         id: run_aider
         shell: bash
@@ -215,12 +230,9 @@ jobs:
             --auto-commits \
             --no-analytics \
             --no-gitignore \
-            | tee .github/aider/aider-output.txt || true
+            | tee .aider_output.txt || true
 
-          echo "Aider command completed. Output saved to .github/aider/aider-output.txt"
-
-      - name: Create aider output directory if it doesn't exist
-        run: mkdir -p .github/aider
+          echo "Aider command completed. Output saved to .aider_output.txt"
 
       - name: Cache Node.js dependencies
         uses: actions/cache@v3
@@ -229,14 +241,6 @@ jobs:
           key: ${{ runner.os }}-node-${{ hashFiles('**/package-lock.json', '**/yarn.lock') }}
           restore-keys: |
             ${{ runner.os }}-node-
-
-      - name: Cache Aider tags
-        uses: actions/cache@v3
-        with:
-          path: .aider.tags.cache.v4
-          key: ${{ runner.os }}-aider-${{ github.sha }}
-          restore-keys: |
-            ${{ runner.os }}-aider-
 
       - name: Commit and Push Changes
         id: commit_and_push
@@ -263,13 +267,20 @@ jobs:
           else
             CURRENT_BRANCH_NAME=$(git rev-parse --abbrev-ref HEAD)
             echo "Attempting to push changes to PR branch $CURRENT_BRANCH_NAME for PR #${{ github.event.issue.number }}"
+            
+            # Pull latest changes to avoid rejection due to non-fast-forward
+            git config pull.rebase true
+            git pull origin $CURRENT_BRANCH_NAME
+            
             if git push origin $CURRENT_BRANCH_NAME; then
               echo "Push to $CURRENT_BRANCH_NAME successful (or no new changes to push)."
               echo "CHANGES_APPLIED_MESSAGE=Aider changes (if any) pushed to PR branch $CURRENT_BRANCH_NAME." >> $GITHUB_OUTPUT
               echo "PR_BRANCH_NAME=$CURRENT_BRANCH_NAME" >> $GITHUB_OUTPUT
+              echo "CHANGES_APPLIED=true" >> $GITHUB_OUTPUT
             else
               echo "::warning::Push to PR branch $CURRENT_BRANCH_NAME failed."
               echo "CHANGES_APPLIED_MESSAGE=Aider ran, but failed to push changes to PR branch $CURRENT_BRANCH_NAME." >> $GITHUB_OUTPUT
+              echo "CHANGES_APPLIED=false" >> $GITHUB_OUTPUT
             fi
           fi
 
@@ -287,7 +298,7 @@ jobs:
 
           ## Aider Output
           \`\`\`
-          $(cat .github/aider/aider-output.txt || echo "No output available")
+          $(cat .aider_output.txt || echo "No output available")
           \`\`\`
           EOL
 
@@ -300,11 +311,45 @@ jobs:
           PR_URL=$(gh pr view $PR_BRANCH --json url --jq .url)
           echo "PR_URL=$PR_URL" >> $GITHUB_OUTPUT
 
+      - name: Comment on PR with Aider Output
+        if: success() && github.event_name == 'pull_request_review' && steps.commit_and_push.outputs.CHANGES_APPLIED != ''
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUM: ${{ github.event.pull_request.number }}
+        run: |
+          # Create comment body in a temporary file to avoid command line length limits
+          if [[ "${{ steps.commit_and_push.outputs.CHANGES_APPLIED }}" == "true" ]]; then
+            cat > /tmp/pr-comment.md << EOL
+          🤖 I've automatically addressed the feedback based on the review.
+
+          ## Aider Output
+          \`\`\`
+          $(cat .aider_output.txt || echo 'No output available')
+          \`\`\`
+
+          Please review the changes and let me know if further adjustments are needed.
+          EOL
+          else
+            cat > /tmp/pr-comment.md << EOL
+          🤖 I attempted to address the review feedback, but no modifications were made.
+
+          ## Aider Output
+          \`\`\`
+          $(cat .aider_output.txt || echo 'No output available')
+          \`\`\`
+
+          Please review the output and provide additional guidance if needed.
+          EOL
+          fi
+
+          # Use the file for comment body
+          gh pr comment $PR_NUM --body-file /tmp/pr-comment.md
+
       - name: Comment on issue/PR to let the user know Aider has finished working on the request
-        if: success() && github.event_name == 'issue_comment' && !github.event.issue.pull_request && steps.commit_and_push.outputs.PR_BRANCH_NAME != ''
+        if: success() && github.event_name == 'issue_comment'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITHUB_REPOSITORY: ${{ github.repository }}
         run: |
           echo "Commenting on issue/PR #${{ github.event.issue.number }} to let the user know Aider has finished working on the request."
-          gh issue comment ${{ github.event.issue.number }} --body "🤖 Aider has finished working on your request. You can view the PR [here](${steps.commit_and_push.outputs.PR_URL})." --repo $GITHUB_REPOSITORY
+          gh issue comment ${{ github.event.issue.number }} --body "🤖 Aider has finished working on your request." --repo $GITHUB_REPOSITORY
