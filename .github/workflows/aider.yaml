@@ -110,7 +110,7 @@ jobs:
           echo "EOF_AIDER_BODY" >> "$GITHUB_OUTPUT"
 
           # Process COMMENT_CONTENT
-          printf -v COMMENT_CONTENT_VAL "%s" "${{ github.event.comment.body }#"/aider"}"
+          printf -v COMMENT_CONTENT_VAL "%s" "${{ github.event.comment.body }}#"/aider"}"
           echo "COMMENT_CONTENT<<EOF_AIDER_COMMENT" >> "$GITHUB_OUTPUT"
           echo "$COMMENT_CONTENT_VAL" >> "$GITHUB_OUTPUT"
           echo "EOF_AIDER_COMMENT" >> "$GITHUB_OUTPUT"
