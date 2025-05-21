@@ -46,7 +46,7 @@ jobs:
           GITHUB_REPOSITORY: ${{ github.repository }}
         run: |
           echo "Commenting on PR #${{ github.event.pull_request.number }} to acknowledge the /aider command."
-          gh pr comment ${{ github.event.pull_request.number }} --body "🤖 Aider is starting to work on your request. I'll update you here once I have a PR ready. Please be patient, this might take a few minutes." --repo $GITHUB_REPOSITORY
+          gh pr comment ${{ github.event.pull_request.number }} --body "🤖 Aider is starting to work on your request. Please be patient, this might take a few minutes." --repo $GITHUB_REPOSITORY
 
       - name: Prepare prompt for Aider
         id: prepare_prompt

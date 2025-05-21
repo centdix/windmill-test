@@ -200,14 +200,6 @@ jobs:
           echo "Formatted files list for aider: $FILES_LIST"
           echo "files_to_edit=$FILES_LIST" >> $GITHUB_OUTPUT
 
-      - name: Cache Aider tags
-        uses: actions/cache@v3
-        with:
-          path: .aider.tags.cache.v4
-          key: ${{ runner.os }}-aider-${{ github.sha }}
-          restore-keys: |
-            ${{ runner.os }}-aider-
-
       - name: Run Aider
         id: run_aider
         shell: bash
