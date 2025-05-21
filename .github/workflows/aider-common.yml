@@ -327,6 +327,12 @@ jobs:
           git log -1 --pretty=format:"%h - %an, %ar : %s"
           echo "Changes not yet committed:"
           git status --porcelain
+          # Check if there are any changes to commit
+          if [[ -n $(git status --porcelain) ]]; then
+            echo "Found uncommitted changes, committing them"
+            git add .
+            git commit -m "Aider changes for issue #${ISSUE_NUM}"
+          fi
 
           # Create PR description in a temporary file to avoid command line length limits and ensure it stays under 40k chars
           cat > /tmp/pr-description.md << EOL | head -c 40000
