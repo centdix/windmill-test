@@ -245,7 +245,7 @@ jobs:
       - name: Commit and Push Changes
         id: commit_and_push
         run: |
-          if [[ -z "${{ github.event.issue.pull_request }}" ]]; then
+          if [[ "${{ github.event_name }}" == 'pull_request_review' ]]; then
             BRANCH_NAME="aider-fix-issue-${{ github.event.issue.number }}"
             
             # Check if branch exists remotely

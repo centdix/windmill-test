@@ -64,8 +64,8 @@ jobs:
             | jq '[.[] | {diff_hunk: .diff_hunk, path: .path, body: .body}]')
 
           BASE_PROMPT="Fix the following issues in the PR based on the review feedback. The review body is prepended with REVIEW. The review comments are prepended with REVIEW_COMMENTS. The review body and comments are separated by a blank line."
-          COMPLETE_PROMPT=$(printf "%s\nREVIEW:\n%s\nREVIEW_COMMENTS:\n%s" \
-            "$BASE_PROMPT" "$REVIEW_BODY_Q" "$ALL_REVIEW_COMMENTS")
+          printf -v COMPLETE_PROMPT "%s\nREVIEW:\n%s\nREVIEW_COMMENTS:\n%s" \
+            "$BASE_PROMPT" "$REVIEW_BODY_Q" "$ALL_REVIEW_COMMENTS"
 
           # Use the proper multi-line output format
           echo "PROMPT_CONTENT<<EOF" >> $GITHUB_OUTPUT
