@@ -133,4 +133,5 @@ jobs:
       issue_title: ${{ needs.check-and-prepare.outputs.issue_title }}
       issue_body: ${{ needs.check-and-prepare.outputs.issue_body }}
       instruction: ${{ needs.check-and-prepare.outputs.comment_content }}
+      issue_id: ${{ github.event.issue.number }}
     secrets: inherit

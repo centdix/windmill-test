@@ -15,6 +15,10 @@ on:
         description: "Instruction for Aider"
         required: false
         type: string
+      issue_id:
+        description: "ID of the issue or PR"
+        required: false
+        type: string
       needs_processing:
         description: "Whether the issue needs to be processed by the external API"
         required: false
@@ -200,6 +204,14 @@ jobs:
           echo "Formatted files list for aider: $FILES_LIST"
           echo "files_to_edit=$FILES_LIST" >> $GITHUB_OUTPUT
 
+      - name: Cache Aider tags
+        uses: actions/cache@v3
+        with:
+          path: .aider.tags.cache.v4
+          key: ${{ runner.os }}-aider-${{ github.sha }}
+          restore-keys: |
+            ${{ runner.os }}-aider-
+
       - name: Run Aider
         id: run_aider
         shell: bash
@@ -237,9 +249,11 @@ jobs:
 
       - name: Commit and Push Changes
         id: commit_and_push
+        env:
+          ISSUE_ID: ${{ inputs.issue_id }}
         run: |
-          if [[ "${{ github.event_name }}" == 'issue_comment' ]]; then
-            BRANCH_NAME="aider-fix-issue-${{ github.event.issue.number }}"
+          if [[ "$ISSUE_ID" != "" ]]; then
+            BRANCH_NAME="aider-fix-issue-${ISSUE_ID}"
 
             # Check if branch exists remotely
             if git ls-remote --heads origin $BRANCH_NAME | grep -q $BRANCH_NAME; then
