@@ -79,6 +79,25 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Checkout PR Branch
+        id: checkout_pr
+        if: github.event_name == 'issue_comment' && github.event.issue.pull_request
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          echo "Issue comment trigger: Checking out PR branch..."
+          PR_NUMBER=${{ github.event.issue.number }}
+          PR_HEAD_REF=$(gh pr view $PR_NUMBER --json headRefName -q .headRefName --repo $GITHUB_REPOSITORY)
+          if [[ -z "$PR_HEAD_REF" || "$PR_HEAD_REF" == "null" ]]; then
+             echo "::error::Could not determine PR head branch for PR #$PR_NUMBER via gh CLI."
+             exit 1
+          fi
+          echo "Checking out PR head branch: $PR_HEAD_REF for PR #$PR_NUMBER"
+          git fetch origin "refs/heads/${PR_HEAD_REF}:refs/remotes/origin/${PR_HEAD_REF}" --no-tags
+          git checkout "$PR_HEAD_REF"
+          echo "Successfully checked out branch $(git rev-parse --abbrev-ref HEAD)"
+          echo "PR_BRANCH=$PR_HEAD_REF" >> $GITHUB_OUTPUT
+
       - name: Configure Git User
         run: |
           git config --global user.name "github-actions[bot]"
@@ -333,6 +352,7 @@ jobs:
             echo "Found uncommitted changes, committing them"
             git add .
             git commit -m "Aider changes for issue #${ISSUE_NUM}"
+            git push origin $PR_BRANCH
           fi
 
           # Create PR description in a temporary file to avoid command line length limits and ensure it stays under 40k chars
