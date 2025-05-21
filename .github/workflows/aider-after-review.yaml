@@ -68,7 +68,7 @@ jobs:
             "$BASE_PROMPT" "$REVIEW_BODY_Q" "$ALL_REVIEW_COMMENTS"
 
           # Use the proper multi-line output format
-          echo "PROMPT_CONTENT<<EOF" >> $GITHUB_OUTPUT
+          echo "prompt_content<<EOF" >> $GITHUB_OUTPUT
           echo "$COMPLETE_PROMPT" >> $GITHUB_OUTPUT
           echo "EOF" >> $GITHUB_OUTPUT
 
