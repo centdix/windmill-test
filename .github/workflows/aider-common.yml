@@ -366,3 +366,16 @@ jobs:
         run: |
           echo "Commenting on issue/PR #${{ github.event.issue.number }} to let the user know Aider has finished working on the request."
           gh issue comment ${{ github.event.issue.number }} --body "🤖 Aider has finished working on your request." --repo $GITHUB_REPOSITORY
+
+      - name: Comment on linear issue to let the user know Aider has finished working on the request
+        if: success() && github.event_name == 'repository_dispatch'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+        run: |
+          echo "Commenting on linear issue #${{ github.event.client_payload.issue_id }} to let the user know Aider has finished working on the request."
+          curl -X POST \
+            -H "Authorization: $LINEAR_API_KEY" \
+            -H "Content-Type: application/json" \
+            "https://api.linear.app/graphql" \
+            -d "{\"query\":\"mutation { commentCreate(input: { issueId: \\\"${{ github.event.client_payload.issue_id }}\\\", body: \\\"🤖 Aider has finished working on your request.\\\" }) { success } }\"}"
