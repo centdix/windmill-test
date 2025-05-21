@@ -119,107 +119,107 @@ jobs:
           sudo apt-get update && sudo apt-get install -y jq
           echo "$HOME/.local/bin" >> $GITHUB_PATH
 
-      - name: Create Prompt for Aider
-        id: create_prompt
-        shell: bash
-        env:
-          BASE_PROMPT_ENV: ${{ inputs.base_prompt }}
-          ISSUE_TITLE_ENV: ${{ inputs.issue_title }}
-          ISSUE_BODY_ENV: ${{ inputs.issue_body }}
-          INSTRUCTION_ENV: ${{ inputs.instruction }}
-          NEEDS_PROCESSING_ENV: ${{ inputs.needs_processing }}
-          WINDMILL_TOKEN: ${{ secrets.WINDMILL_TOKEN }}
-        run: |
-          set -e
-          FINAL_PROMPT_CONTENT=""
+      # - name: Create Prompt for Aider
+      #   id: create_prompt
+      #   shell: bash
+      #   env:
+      #     BASE_PROMPT_ENV: ${{ inputs.base_prompt }}
+      #     ISSUE_TITLE_ENV: ${{ inputs.issue_title }}
+      #     ISSUE_BODY_ENV: ${{ inputs.issue_body }}
+      #     INSTRUCTION_ENV: ${{ inputs.instruction }}
+      #     NEEDS_PROCESSING_ENV: ${{ inputs.needs_processing }}
+      #     WINDMILL_TOKEN: ${{ secrets.WINDMILL_TOKEN }}
+      #   run: |
+      #     set -e
+      #     FINAL_PROMPT_CONTENT=""
 
-          if [[ "$ISSUE_TITLE_ENV" != "" && "$ISSUE_BODY_ENV" != "" ]]; then
-            echo "Processing issue with title: $ISSUE_TITLE_ENV"
-            if [[ "$NEEDS_PROCESSING_ENV" == "true" ]]; then
-              echo "Needs processing is true. Calling Windmill API..."
-              JSON_PAYLOAD=$(jq -n \
-                --arg title "$ISSUE_TITLE_ENV" \
-                --arg body "$ISSUE_BODY_ENV" \
-                '{"body":{"issue_title":$title,"issue_body":$body}}')
+      #     if [[ "$ISSUE_TITLE_ENV" != "" && "$ISSUE_BODY_ENV" != "" ]]; then
+      #       echo "Processing issue with title: $ISSUE_TITLE_ENV"
+      #       if [[ "$NEEDS_PROCESSING_ENV" == "true" ]]; then
+      #         echo "Needs processing is true. Calling Windmill API..."
+      #         JSON_PAYLOAD=$(jq -n \
+      #           --arg title "$ISSUE_TITLE_ENV" \
+      #           --arg body "$ISSUE_BODY_ENV" \
+      #           '{"body":{"issue_title":$title,"issue_body":$body}}')
 
-              echo "Windmill JSON Payload: $JSON_PAYLOAD"
+      #         echo "Windmill JSON Payload: $JSON_PAYLOAD"
 
-              API_RESULT_FILE=$(mktemp)
-              HTTP_CODE=$(curl -s -o "$API_RESULT_FILE" -w "%{http_code}" \
-                -X POST "https://app.windmill.dev/api/w/windmill-labs/jobs/run_wait_result/p/f/ai/quiet_script" \
-                -H "Content-Type: application/json" \
-                -H "Authorization: Bearer $WINDMILL_TOKEN" \
-                --data-binary "$JSON_PAYLOAD" \
-                --max-time 90)
+      #         API_RESULT_FILE=$(mktemp)
+      #         HTTP_CODE=$(curl -s -o "$API_RESULT_FILE" -w "%{http_code}" \
+      #           -X POST "https://app.windmill.dev/api/w/windmill-labs/jobs/run_wait_result/p/f/ai/quiet_script" \
+      #           -H "Content-Type: application/json" \
+      #           -H "Authorization: Bearer $WINDMILL_TOKEN" \
+      #           --data-binary "$JSON_PAYLOAD" \
+      #           --max-time 90)
 
-              BODY_CONTENT=$(cat "$API_RESULT_FILE")
-              rm -f "$API_RESULT_FILE" # Clean up temp file
+      #         BODY_CONTENT=$(cat "$API_RESULT_FILE")
+      #         rm -f "$API_RESULT_FILE" # Clean up temp file
 
-              echo "Windmill API HTTP Code: $HTTP_CODE"
-              if [[ "$HTTP_CODE" -eq 200 ]]; then
-                PROCESSED_ISSUE_PROMPT=$(echo "$BODY_CONTENT" | jq -r '.effective_body // empty')
-                if [[ -z "$PROCESSED_ISSUE_PROMPT" || "$PROCESSED_ISSUE_PROMPT" == "null" ]]; then
-                  echo "::warning::Windmill API returned 200 but effective_body was empty or null."
-                  EFFECTIVE_ISSUE_CONTENT_FOR_PROMPT="$ISSUE_BODY_ENV"
-                else
-                  echo "Successfully processed issue via Windmill API."
-                  EFFECTIVE_ISSUE_CONTENT_FOR_PROMPT="$PROCESSED_ISSUE_PROMPT"
-                fi
-                FINAL_PROMPT_CONTENT=$(printf "%s\nISSUE:\n%s\nINSTRUCTION:\n%s" \
-                  "$BASE_PROMPT_ENV" "$EFFECTIVE_ISSUE_CONTENT_FOR_PROMPT" "$INSTRUCTION_ENV")
-              else
-                echo "::error::Windmill API call failed (HTTP $HTTP_CODE). Using raw issue content for prompt."
-                FINAL_PROMPT_CONTENT=$(printf "%s\nISSUE:\n%s\nINSTRUCTION:\n%s" \
-                  "$BASE_PROMPT_ENV" "$ISSUE_BODY_ENV" "$INSTRUCTION_ENV")
-              fi
-            else
-              echo "Needs processing is false. Using raw issue content for prompt."
-              FINAL_PROMPT_CONTENT=$(printf "%s\nISSUE:\n%s\nINSTRUCTION:\n%s" \
-                "$BASE_PROMPT_ENV" "$ISSUE_BODY_ENV" "$INSTRUCTION_ENV")
-            fi
-          else
-            echo "No issue title or body given. Using base prompt."
-            FINAL_PROMPT_CONTENT="$BASE_PROMPT_ENV"
-          fi
+      #         echo "Windmill API HTTP Code: $HTTP_CODE"
+      #         if [[ "$HTTP_CODE" -eq 200 ]]; then
+      #           PROCESSED_ISSUE_PROMPT=$(echo "$BODY_CONTENT" | jq -r '.effective_body // empty')
+      #           if [[ -z "$PROCESSED_ISSUE_PROMPT" || "$PROCESSED_ISSUE_PROMPT" == "null" ]]; then
+      #             echo "::warning::Windmill API returned 200 but effective_body was empty or null."
+      #             EFFECTIVE_ISSUE_CONTENT_FOR_PROMPT="$ISSUE_BODY_ENV"
+      #           else
+      #             echo "Successfully processed issue via Windmill API."
+      #             EFFECTIVE_ISSUE_CONTENT_FOR_PROMPT="$PROCESSED_ISSUE_PROMPT"
+      #           fi
+      #           FINAL_PROMPT_CONTENT=$(printf "%s\nISSUE:\n%s\nINSTRUCTION:\n%s" \
+      #             "$BASE_PROMPT_ENV" "$EFFECTIVE_ISSUE_CONTENT_FOR_PROMPT" "$INSTRUCTION_ENV")
+      #         else
+      #           echo "::error::Windmill API call failed (HTTP $HTTP_CODE). Using raw issue content for prompt."
+      #           FINAL_PROMPT_CONTENT=$(printf "%s\nISSUE:\n%s\nINSTRUCTION:\n%s" \
+      #             "$BASE_PROMPT_ENV" "$ISSUE_BODY_ENV" "$INSTRUCTION_ENV")
+      #         fi
+      #       else
+      #         echo "Needs processing is false. Using raw issue content for prompt."
+      #         FINAL_PROMPT_CONTENT=$(printf "%s\nISSUE:\n%s\nINSTRUCTION:\n%s" \
+      #           "$BASE_PROMPT_ENV" "$ISSUE_BODY_ENV" "$INSTRUCTION_ENV")
+      #       fi
+      #     else
+      #       echo "No issue title or body given. Using base prompt."
+      #       FINAL_PROMPT_CONTENT="$BASE_PROMPT_ENV"
+      #     fi
 
-          echo "Final prompt: $FINAL_PROMPT_CONTENT"
-          echo "final_prompt<<EOF_AIDER_PROMPT" >> "$GITHUB_OUTPUT"
-          echo "$FINAL_PROMPT_CONTENT" >> "$GITHUB_OUTPUT"
-          echo "EOF_AIDER_PROMPT" >> "$GITHUB_OUTPUT"
+      #     echo "Final prompt: $FINAL_PROMPT_CONTENT"
+      #     echo "final_prompt<<EOF_AIDER_PROMPT" >> "$GITHUB_OUTPUT"
+      #     echo "$FINAL_PROMPT_CONTENT" >> "$GITHUB_OUTPUT"
+      #     echo "EOF_AIDER_PROMPT" >> "$GITHUB_OUTPUT"
 
-      - name: Probe Chat for Relevant Files
-        id: probe_files
-        shell: bash
-        env:
-          FINAL_PROMPT: ${{ steps.create_prompt.outputs.final_prompt }}
-        run: |
-          echo "Running probe-chat to find relevant files..."
+      # - name: Probe Chat for Relevant Files
+      #   id: probe_files
+      #   shell: bash
+      #   env:
+      #     FINAL_PROMPT: ${{ steps.create_prompt.outputs.final_prompt }}
+      #   run: |
+      #     echo "Running probe-chat to find relevant files..."
 
-          # escape the final prompt
-          printf -v MESSAGE_FOR_PROBE 'I'\''m giving you a request that needs to be implemented. Your role is ONLY to give me the files that are relevant to the request and nothing else. The request is prepended with the word REQUEST.\nREQUEST: %s. Give me all the files relevant to this request. Your output MUST be a single json array that can be parsed with programatic json parsing, with the relevant files. Files can be rust or typescript or javascript files. DO NOT INCLUDE ANY OTHER TEXT IN YOUR OUTPUT. ONLY THE JSON ARRAY. Example of output: ["file1.py", "file2.py"]' "$FINAL_PROMPT"
+      #     # escape the final prompt
+      #     printf -v MESSAGE_FOR_PROBE 'I'\''m giving you a request that needs to be implemented. Your role is ONLY to give me the files that are relevant to the request and nothing else. The request is prepended with the word REQUEST.\nREQUEST: %s. Give me all the files relevant to this request. Your output MUST be a single json array that can be parsed with programatic json parsing, with the relevant files. Files can be rust or typescript or javascript files. DO NOT INCLUDE ANY OTHER TEXT IN YOUR OUTPUT. ONLY THE JSON ARRAY. Example of output: ["file1.py", "file2.py"]' "$FINAL_PROMPT"
 
-          set -o pipefail
-          PROBE_OUTPUT=$(npx --yes @buger/probe-chat@latest --max-iterations 50 --model-name gemini-2.5-pro-preview-05-06 --message "$MESSAGE_FOR_PROBE") || {
-            echo "::error::probe-chat command failed. Output:"
-            echo "$PROBE_OUTPUT"
-            exit 1
-          }
-          set +o pipefail
-          echo "Probe-chat raw output:"
-          echo "$PROBE_OUTPUT"
+      #     set -o pipefail
+      #     PROBE_OUTPUT=$(npx --yes @buger/probe-chat@latest --max-iterations 50 --model-name gemini-2.5-pro-preview-05-06 --message "$MESSAGE_FOR_PROBE") || {
+      #       echo "::error::probe-chat command failed. Output:"
+      #       echo "$PROBE_OUTPUT"
+      #       exit 1
+      #     }
+      #     set +o pipefail
+      #     echo "Probe-chat raw output:"
+      #     echo "$PROBE_OUTPUT"
 
-          JSON_FILES=$(echo "$PROBE_OUTPUT" | sed -n '/^\s*\[/,$p' | sed '/^\s*\]/q')
-          echo "Extracted JSON block:"
-          echo "$JSON_FILES"
+      #     JSON_FILES=$(echo "$PROBE_OUTPUT" | sed -n '/^\s*\[/,$p' | sed '/^\s*\]/q')
+      #     echo "Extracted JSON block:"
+      #     echo "$JSON_FILES"
 
-          FILES_LIST=$(echo "$JSON_FILES" | jq -e -r '[.[] | select(type == "string" and . != "" and . != null and (endswith("/") | not))] | map(@sh) | join(" ")' || echo "")
+      #     FILES_LIST=$(echo "$JSON_FILES" | jq -e -r '[.[] | select(type == "string" and . != "" and . != null and (endswith("/") | not))] | map(@sh) | join(" ")' || echo "")
 
-          if [[ -z "$FILES_LIST" ]]; then
-             echo "::warning::probe-chat did not identify any relevant files."
-          fi
+      #     if [[ -z "$FILES_LIST" ]]; then
+      #        echo "::warning::probe-chat did not identify any relevant files."
+      #     fi
 
-          echo "Formatted files list for aider: $FILES_LIST"
-          echo "files_to_edit=$FILES_LIST" >> $GITHUB_OUTPUT
+      #     echo "Formatted files list for aider: $FILES_LIST"
+      #     echo "files_to_edit=$FILES_LIST" >> $GITHUB_OUTPUT
 
       - name: Cache Aider tags
         uses: actions/cache@v3
@@ -246,7 +246,7 @@ jobs:
             --read .cursor/rules/windmill-overview.mdc \
             $FILES_TO_EDIT \
             --model gemini/gemini-2.5-pro-preview-05-06 \
-            --message-file .aider_final_prompt.txt \
+            --message "create a test file in backend/test.txt with hello world in it" \
             --yes \
             --no-check-update \
             --auto-commits \
