@@ -266,7 +266,7 @@ jobs:
               git checkout -b $BRANCH_NAME
             fi
 
-            echo "Created/checked out branch $BRANCH_NAME for issue #${{ github.event.issue.number }}"
+            echo "Created/checked out branch $BRANCH_NAME for issue #${ISSUE_ID}"
             git push origin $BRANCH_NAME
             echo "Pushed to branch $BRANCH_NAME"
             echo "PR_BRANCH_NAME=$BRANCH_NAME" >> $GITHUB_OUTPUT
@@ -298,11 +298,11 @@ jobs:
           fi
 
       - name: Create Pull Request
-        if: success() && github.event_name == 'issue_comment' && !github.event.issue.pull_request && steps.commit_and_push.outputs.PR_BRANCH_NAME != ''
+        if: success() && (github.event_name == 'issue_comment' || github.event_name == 'repository_dispatch') && !github.event.issue.pull_request && steps.commit_and_push.outputs.PR_BRANCH_NAME != ''
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PR_BRANCH: ${{ steps.commit_and_push.outputs.PR_BRANCH_NAME }}
-          ISSUE_NUM: ${{ github.event.issue.number }}
+          ISSUE_NUM: ${{ inputs.issue_id }}
           ISSUE_TITLE: ${{ inputs.issue_title }}
         run: |
           # Create PR description in a temporary file to avoid command line length limits and ensure it stays under 40k chars
