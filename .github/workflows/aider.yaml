@@ -89,7 +89,7 @@ jobs:
 
   run-aider:
     needs: check-and-prepare
-    uses: .github/workflows/aider-common.yml@main
+    uses: ./.github/workflows/aider-common.yml@main
     with:
       issue_title: ${{ needs.check-and-prepare.outputs.issue_title }}
       issue_body: ${{ needs.check-and-prepare.outputs.issue_body }}
