@@ -5,7 +5,7 @@ on:
     types: [created]
 
 jobs:
-  auto-fix:
+  check-and-prepare:
     runs-on: ubicloud-standard-8
     if: |
       github.event_name == 'issue_comment' &&
@@ -21,9 +21,18 @@ jobs:
       GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       WINDMILL_TOKEN: ${{ secrets.WINDMILL_TOKEN }}
+    outputs:
+      issue_title: ${{ steps.determine_inputs.outputs.ISSUE_TITLE }}
+      issue_body: ${{ steps.determine_inputs.outputs.ISSUE_BODY }}
+      comment_content: ${{ steps.determine_inputs.outputs.COMMENT_CONTENT }}
+      pr_branch: ${{ steps.checkout_pr.outputs.PR_BRANCH }}
 
     steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
       - name: Checkout PR Branch
+        id: checkout_pr
         if: github.event_name == 'issue_comment' && github.event.issue.pull_request
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -39,6 +48,7 @@ jobs:
           git fetch origin "refs/heads/${PR_HEAD_REF}:refs/remotes/origin/${PR_HEAD_REF}" --no-tags
           git checkout "$PR_HEAD_REF"
           echo "Successfully checked out branch $(git rev-parse --abbrev-ref HEAD)"
+          echo "PR_BRANCH=$PR_HEAD_REF" >> $GITHUB_OUTPUT
 
       - name: Determine inputs for Aider
         id: determine_inputs
@@ -77,16 +87,28 @@ jobs:
           COMMENT_CONTENT=$(echo "${{ github.event.comment.body }}" | sed 's|^/aider||' | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')
           echo "COMMENT_CONTENT=$COMMENT_CONTENT" >> $GITHUB_OUTPUT
 
-      - name: Ask Aider to fix the issue
-        uses: centdix/windmilldocs/.github/workflows/aider-common.yml@main
-        with:
-          issue_title: ${{ steps.determine_inputs.outputs.ISSUE_TITLE }}
-          issue_body: ${{ steps.determine_inputs.outputs.ISSUE_BODY }}
-          instruction: ${{ steps.determine_inputs.outputs.COMMENT_CONTENT }}
+  run-aider:
+    needs: check-and-prepare
+    uses: centdix/windmilldocs/.github/workflows/aider-common.yml@main
+    with:
+      issue_title: ${{ needs.check-and-prepare.outputs.issue_title }}
+      issue_body: ${{ needs.check-and-prepare.outputs.issue_body }}
+      instruction: ${{ needs.check-and-prepare.outputs.comment_content }}
+    secrets: inherit
 
+  commit-changes:
+    needs: [check-and-prepare, run-aider]
+    runs-on: ubicloud-standard-8
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: write
+    env:
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
       - name: Commit and Push Changes
         id: commit_and_push
-        if: ${{ success() }}
         run: |
           if [[ -z "${{ github.event.issue.pull_request }}" ]]; then
             BRANCH_NAME="aider-fix-issue-${{ github.event.issue.number }}"
@@ -126,7 +148,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PR_BRANCH: ${{ steps.commit_and_push.outputs.PR_BRANCH_NAME }}
           ISSUE_NUM: ${{ github.event.issue.number }}
-          ISSUE_TITLE: ${{ steps.determine_inputs.outputs.ISSUE_TITLE }}
+          ISSUE_TITLE: ${{ needs.check-and-prepare.outputs.issue_title }}
         run: |
           # Create PR description in a temporary file to avoid command line length limits
           cat > /tmp/pr-description.md << EOL
