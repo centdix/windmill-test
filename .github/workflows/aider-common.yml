@@ -281,7 +281,7 @@ jobs:
             --no-gitignore \
             | tee .aider_output.txt || true
 
-          echo "Aider command completed. Output saved to .aider_output.txt"
+          echo "Aider command completed. Output saved to .aider_output.txt few"
 
       - name: Cache Node.js dependencies
         uses: actions/cache@v3
