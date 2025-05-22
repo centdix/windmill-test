@@ -93,7 +93,7 @@ jobs:
             
             if [[ ! -z "$PR_BODY_VAL" ]]; then
               REFERENCED_ISSUE=""
-              if [[ "$PR_BODY_VAL" =~ \#linear:([0-9]+) ]]; then
+              if [[ "$PR_BODY_VAL" =~ \#linear:([a-f0-9-]+) ]]; then
                 REFERENCED_ISSUE="${BASH_REMATCH[1]}"
                 echo "Found referenced Linear issue #$REFERENCED_ISSUE in PR description"
                 LINEAR_ISSUE_JSON=$(curl -s -H "Authorization: $LINEAR_API_KEY" \
