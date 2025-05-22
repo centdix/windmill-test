@@ -341,6 +341,7 @@ jobs:
         id: commit_and_push
         env:
           ISSUE_ID: ${{ inputs.issue_id }}
+          BRANCH_NAME: ${{ steps.prepare_branch.outputs.BRANCH_NAME }}
         run: |
           if [[ "$ISSUE_ID" != "" ]]; then
             # Check if there are any uncommitted changes
@@ -351,7 +352,7 @@ jobs:
             fi
 
             # Push changes to the branch
-            if git push --set-upstream origin $BRANCH_NAME; then
+            if git push origin $BRANCH_NAME; then
               echo "Pushed to branch $BRANCH_NAME"
               echo "PR_BRANCH_NAME=$BRANCH_NAME" >> $GITHUB_OUTPUT
               echo "CHANGES_APPLIED_MESSAGE=Aider changes pushed to branch $BRANCH_NAME." >> $GITHUB_OUTPUT
@@ -365,7 +366,7 @@ jobs:
             # We're in a pull_request_review event
             PR_HEAD_REF="${{ github.event.pull_request.head.ref }}"
             echo "Attempting to push changes to PR branch $PR_HEAD_REF"
-            if git push --set-upstream origin $PR_HEAD_REF; then
+            if git push origin $PR_HEAD_REF; then
               echo "Push to $PR_HEAD_REF successful (or no new changes to push)."
               echo "CHANGES_APPLIED_MESSAGE=Aider changes (if any) pushed to PR branch $PR_HEAD_REF." >> $GITHUB_OUTPUT
               echo "PR_BRANCH_NAME=$PR_HEAD_REF" >> $GITHUB_OUTPUT
