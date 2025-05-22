@@ -504,7 +504,7 @@ dflt="\${2:-default value}"
 
 # the last line of the stdout is the return value
 # unless you write json to './result.json' or a string to './result.out'
-echo "Hello $msg"
+echo "Hello world $msg"
 `
 
 const DENO_INIT_CODE_TRIGGER = `import * as wmill from "npm:windmill-client@${__pkg__.version}"
@@ -963,7 +963,7 @@ const POWERSHELL_INIT_CODE = `param($Msg, $Dflt = "default value", [int]$Nb = 3)
 # Get-WindmillVariable -Path 'u/user/foo'
 
 # the last line of the stdout is the return value
-Write-Output "Hello $Msg"`
+Write-Output "Hello world $Msg"`
 
 const ANSIBLE_PLAYBOOK_INIT_CODE = `---
 inventory:
