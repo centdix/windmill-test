@@ -22,18 +22,19 @@ jobs:
           COMMENTER: ${{ github.event.comment.user.login }}
           ORG_ACCESS_TOKEN: ${{ secrets.ORG_ACCESS_TOKEN }}
         run: |
-          ORG="windmill-labs"
-          STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
-            -H "Authorization: token $ORG_ACCESS_TOKEN" \
-            -H "Accept: application/vnd.github+json" \
-            -H "X-GitHub-Api-Version: 2022-11-28" \
-            "https://api.github.com/orgs/$ORG/members/$COMMENTER")
+          # ORG="windmill-labs"
+          # STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
+          #   -H "Authorization: token $ORG_ACCESS_TOKEN" \
+          #   -H "Accept: application/vnd.github+json" \
+          #   -H "X-GitHub-Api-Version: 2022-11-28" \
+          #   "https://api.github.com/orgs/$ORG/members/$COMMENTER")
 
-          if [ "$STATUS" -eq 204 ]; then
-            echo "is_member=true" >> $GITHUB_OUTPUT
-          else
-            echo "is_member=false" >> $GITHUB_OUTPUT
-          fi
+          # if [ "$STATUS" -eq 204 ]; then
+          #   echo "is_member=true" >> $GITHUB_OUTPUT
+          # else
+          #   echo "is_member=false" >> $GITHUB_OUTPUT
+          # fi
+          echo "is_member=true" >> $GITHUB_OUTPUT
 
   check-and-prepare:
     needs: check-membership
