@@ -110,7 +110,7 @@ mod tests {
 class Stripe {}
 
 function main(string $input1 = \"hey\", bool $input2 = false, int $input3 = 3, float $input4 = 4.5, Stripe $resource) {
-    echo 'hello';
+    echo 'hello world';
 }
 
 ";
