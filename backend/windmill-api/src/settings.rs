@@ -145,7 +145,7 @@ pub async fn test_s3_bucket(
     ));
     tracing::info!("Testing blob storage at path: {path}");
     client
-        .put(&path, object_store::PutPayload::from_static(b"hello"))
+        .put(&path, object_store::PutPayload::from_static(b"hello world"))
         .await
         .map_err(|e| anyhow::anyhow!("error writing file to {path}: {e:#}"))?;
     let content = client
@@ -155,7 +155,7 @@ pub async fn test_s3_bucket(
         .bytes()
         .await
         .map_err(to_anyhow)?;
-    if content != Bytes::from_static(b"hello") {
+    if content != Bytes::from_static(b"hello world") {
         return Err(error::Error::internal_err(
             "Failed to read back from blob storage".to_string(),
         ));
