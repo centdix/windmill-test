@@ -252,6 +252,8 @@ async fn cache_hub_scripts(file_path: Option<String>) -> anyhow::Result<()> {
 
 async fn windmill_main() -> anyhow::Result<()> {
     dotenv::dotenv().ok();
+    
+    println!("Hello World");
 
     if std::env::var("RUST_LOG").is_err() {
         std::env::set_var("RUST_LOG", "info")
