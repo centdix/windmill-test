@@ -472,16 +472,23 @@ pub fn build_headers(
             );
         }
     } else {
+        let transform_underscores_to_hyphens = include_header.is_some();
+
         let whitelist = include_header
             .map(|s| s.split(",").map(|s| s.to_string()).collect::<Vec<_>>())
             .unwrap_or_default();
         whitelist
             .iter()
             .chain(INCLUDE_HEADERS.iter())
-            .for_each(|h| {
-                if let Some(v) = headers.get(h) {
+            .for_each(|h_specifier| {
+                if let Some(v) = headers.get(h_specifier) {
+                    let key = if transform_underscores_to_hyphens {
+                        h_specifier.to_lowercase().replace('_', "-")
+                    } else {
+                        h_specifier.to_lowercase().replace('-', "_")
+                    };
                     selected_headers.insert(
-                        h.to_string().to_lowercase().replace('-', "_"),
+                        key,
                         to_raw_value(&v.to_str().unwrap_or("").to_string()),
                     );
                 }
