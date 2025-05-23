@@ -147,6 +147,7 @@ jobs:
             echo "Installing Aider..."
             python -m pip install uv
             uv tool install --force --python python3.11 --with pip aider-chat@latest
+            python -m pip install --upgrade aider-chat
           fi
           pip install -U google-generativeai
           sudo apt-get update && sudo apt-get install -y jq
