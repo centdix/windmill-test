@@ -71,6 +71,7 @@ jobs:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       WINDMILL_TOKEN: ${{ secrets.WINDMILL_TOKEN }}
       LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY }}
+      DISCORD_BOT_TOKEN: ${{ secrets.DISCORD_AI_BOT_TOKEN }}
 
     steps:
       - name: Harden Runner
@@ -210,7 +211,7 @@ jobs:
             fi
           else
             echo "No issue title or body given. Using base prompt."
-            FINAL_PROMPT_CONTENT="$BASE_PROMPT_ENV"
+            FINAL_PROMPT_CONTENT=$(printf "%s\nINSTRUCTION:\n%s" "$BASE_PROMPT_ENV" "$INSTRUCTION_ENV")
           fi
 
           echo "Final prompt: $FINAL_PROMPT_CONTENT"
@@ -422,7 +423,8 @@ jobs:
             --title "[Aider PR] Fix: ${ISSUE_TITLE}" \
             --body-file /tmp/pr-description.md \
             --head "$PR_BRANCH" \
-            --base main
+            --base main \
+            --draft
           PR_CREATE_EXIT_CODE=$?
           set -e  # Re-enable exit on error
 
@@ -480,12 +482,13 @@ jobs:
           GITHUB_REPOSITORY: ${{ github.repository }}
           JOB_STATUS: ${{ job.status }}
           PR_CREATED: ${{ steps.create_pr.outputs.PR_CREATED }}
+          PR_URL: ${{ steps.create_pr.outputs.PR_URL }}
         run: |
           echo "Commenting on issue/PR #${{ github.event.issue.number }} to let the user know Aider has finished working on the request."
 
           if [[ "$JOB_STATUS" == "success" ]]; then
             if [[ "$PR_CREATED" == "true" ]]; then
-              COMMENT_BODY="🤖 Aider has finished working on your request. A PR has been created."
+              COMMENT_BODY="🤖 Aider has finished working on your request. A PR has been created. $PR_URL"
             else
               COMMENT_BODY="🤖 Aider has finished working on your request, but was unable to create a PR."
             fi
@@ -503,21 +506,32 @@ jobs:
           JOB_STATUS: ${{ job.status }}
           LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY }}
           PR_CREATED: ${{ steps.create_pr.outputs.PR_CREATED }}
+          PR_URL: ${{ steps.create_pr.outputs.PR_URL }}
+          DISCORD_BOT_TOKEN: ${{ secrets.DISCORD_AI_BOT_TOKEN }}
+          SOURCE: ${{ github.event.client_payload.source }}
         run: |
           echo "Commenting on linear issue #${{ github.event.client_payload.issue_id }} to let the user know Aider has finished working on the request."
 
           if [[ "$JOB_STATUS" == "success" ]]; then
             if [[ "$PR_CREATED" == "true" ]]; then
-              COMMENT_BODY="🤖 Aider has finished working on your request. A PR has been created."
+              COMMENT_BODY="🤖 Aider has finished working on your request. A PR has been created. $PR_URL"
             else
-              COMMENT_BODY="🤖 Aider has finished working on your request, but was unable to create a PR."
+              COMMENT_BODY="🤖 Aider has finished working on your request, but was unable to create a PR"
             fi
           else
             COMMENT_BODY="⚠️ Aider encountered issues while working on your request. Please check the workflow logs for details."
           fi
 
-          curl -X POST \
-            -H "Authorization: $LINEAR_API_KEY" \
-            -H "Content-Type: application/json" \
-            "https://api.linear.app/graphql" \
-            -d "{\"query\":\"mutation { commentCreate(input: { issueId: \\\"${{ github.event.client_payload.issue_id }}\\\", body: \\\"${COMMENT_BODY}\\\" }) { success } }\"}"
+          if [[ "$SOURCE" == "discord" ]]; then
+            curl -X POST \
+              -H "Authorization: Bot $DISCORD_BOT_TOKEN" \
+              -H "Content-Type: application/json" \
+              "https://discord.com/api/v10/channels/${{ github.event.client_payload.channel_id }}/messages" \
+              -d "{\"content\":\"${COMMENT_BODY}\"}"
+          else
+            curl -X POST \
+              -H "Authorization: $LINEAR_API_KEY" \
+              -H "Content-Type: application/json" \
+              "https://api.linear.app/graphql" \
+              -d "{\"query\":\"mutation { commentCreate(input: { issueId: \\\"${{ github.event.client_payload.issue_id }}\\\", body: \\\"${COMMENT_BODY}\\\" }) { success } }\"}"
+          fi
