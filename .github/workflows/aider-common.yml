@@ -210,7 +210,7 @@ jobs:
             $RULES \
             $FILES_TO_EDIT \
             --model gemini/gemini-2.5-pro-preview-05-06 \
-            --message "test" \
+            --message "this is just a test write hello in backend/test123.txt" \
             --yes \
             --no-check-update \
             --auto-commits \
