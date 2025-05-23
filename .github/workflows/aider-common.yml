@@ -57,7 +57,7 @@ on:
 
 jobs:
   common-steps:
-    runs-on: ubicloud-standard-8
+    runs-on: ubuntu-latest
     outputs:
       files_to_edit: ${{ steps.probe_files.outputs.files_to_edit }}
       final_prompt: ${{ steps.create_prompt.outputs.final_prompt }}
