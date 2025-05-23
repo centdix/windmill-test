@@ -129,24 +129,9 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-pip-
 
-      - name: Cache Aider installation
-        id: cache-aider
-        uses: actions/cache@v3
-        with:
-          path: ~/.local/bin/aider
-          key: ${{ runner.os }}-aider-install-${{ hashFiles('**/requirements.txt', '**/setup.py') }}
-          restore-keys: |
-            ${{ runner.os }}-aider-install-
-
       - name: Install Aider and Dependencies
         run: |
-          if [ -f ~/.local/bin/aider ] && [ -x ~/.local/bin/aider ]; then
-            echo "Using cached Aider installation"
-            export PATH="$HOME/.local/bin:$PATH"
-          else
-            echo "Installing Aider..."
-            python -m pip install aider-install; aider-install
-          fi
+          curl -LsSf https://aider.chat/install.sh | sh
           pip install -U google-generativeai
           sudo apt-get update && sudo apt-get install -y jq
           echo "$HOME/.local/bin" >> $GITHUB_PATH
