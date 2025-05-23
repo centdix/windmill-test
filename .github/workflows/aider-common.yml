@@ -140,6 +140,7 @@ jobs:
           uv pip install -U google-generativeai
           sudo apt-get update && sudo apt-get install -y jq
           echo "$HOME/.local/bin" >> $GITHUB_PATH
+          echo "VIRTUAL_ENV_PATH=$HOME/uv-env" >> $GITHUB_ENV
 
       - name: Cache Aider tags
         uses: actions/cache@v3
@@ -193,6 +194,7 @@ jobs:
           FINAL_PROMPT: ${{ steps.create_prompt.outputs.final_prompt }}
           RULES_FILES: ${{ inputs.rules_files }}
         run: |
+          source $VIRTUAL_ENV_PATH/bin/activate
 
           echo "$FINAL_PROMPT" > .aider_final_prompt.txt
           echo "FILES_TO_EDIT: $FILES_TO_EDIT"
