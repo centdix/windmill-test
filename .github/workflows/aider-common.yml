@@ -145,7 +145,8 @@ jobs:
             export PATH="$HOME/.local/bin:$PATH"
           else
             echo "Installing Aider..."
-            python -m pip install aider-install; aider-install
+            python -m pip install uv
+            uv tool install --force --python python3.11 --with pip aider-chat@latest
           fi
           pip install -U google-generativeai
           sudo apt-get update && sudo apt-get install -y jq
